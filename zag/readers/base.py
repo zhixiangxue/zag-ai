@@ -3,7 +3,8 @@ Base reader class for all readers
 """
 
 from abc import ABC, abstractmethod
-from zag.schemas.base import BaseDocument
+
+from ..schemas.base import BaseDocument
 
 
 class BaseReader(ABC):

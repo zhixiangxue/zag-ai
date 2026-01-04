@@ -5,7 +5,7 @@ PDF document schema
 from typing import Any
 from pydantic import Field
 
-from zag.schemas.base import PageableDocument, UnitCollection
+from .base import PageableDocument, UnitCollection
 
 
 class PDF(PageableDocument):

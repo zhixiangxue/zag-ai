@@ -2,7 +2,7 @@
 Embedder exceptions
 """
 
-from zag.exceptions import ZagError
+from ..exceptions import ZagError
 
 
 class EmbedderError(ZagError):

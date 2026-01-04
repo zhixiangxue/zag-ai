@@ -137,21 +137,44 @@ class BaseVectorStore(ABC):
             return self.text_embedder
     
     @abstractmethod
-    def add(self, units: list['BaseUnit']) -> None:
+    def add(self, units: Union['BaseUnit', list['BaseUnit']]) -> None:
         """
-        Add units to vector store
+        Add unit(s) to vector store
+        
+        Supports both single unit and batch operations:
+        - Single: store.add(unit)
+        - Batch: store.add([unit1, unit2, ...])
         
         Args:
-            units: List of units to store
+            units: Single unit or list of units to store
             
         Internal Process:
-            1. Use self.embedder to generate vectors for units
-            2. Store vectors and metadata to vector database
+            1. Normalize input to list format
+            2. Use self.embedder to generate vectors for units
+            3. Store vectors and metadata to vector database
             
         Note:
             - Users don't need to pre-embed units
             - VectorStore automatically calls embedder
             - Ensures unified embedding model
+            - Batch operations are more efficient when adding multiple units
+        """
+        pass
+    
+    @abstractmethod
+    async def aadd(self, units: Union['BaseUnit', list['BaseUnit']]) -> None:
+        """
+        Async version of add - must be implemented by subclass
+        
+        Add unit(s) to vector store asynchronously.
+        
+        Args:
+            units: Single unit or list of units to store
+            
+        Implementation Notes:
+            - If backend supports async natively (e.g., Qdrant), implement true async I/O
+            - If backend is sync-only (e.g., ChromaDB), can use executor wrapper or raise NotImplementedError
+            - Make it clear in subclass docstring whether true async is supported
         """
         pass
     
@@ -185,9 +208,47 @@ class BaseVectorStore(ABC):
         pass
     
     @abstractmethod
+    async def asearch(
+        self,
+        query: Union[str, 'BaseUnit'],
+        top_k: int = 10,
+        filter: Optional[dict[str, Any]] = None
+    ) -> list['BaseUnit']:
+        """
+        Async version of search - must be implemented by subclass
+        
+        Search for similar units asynchronously.
+        
+        Args:
+            query: Query content (can be text or Unit)
+            top_k: Number of results to return
+            filter: Optional metadata filters
+            
+        Returns:
+            List of matching units, sorted by similarity
+            
+        Implementation Notes:
+            - If backend supports async natively, implement true async I/O
+            - If backend is sync-only, can use executor wrapper or raise NotImplementedError
+        """
+        pass
+    
+    @abstractmethod
     def delete(self, unit_ids: list[str]) -> None:
         """
         Delete units by IDs
+        
+        Args:
+            unit_ids: List of unit IDs to delete
+        """
+        pass
+    
+    @abstractmethod
+    async def adelete(self, unit_ids: list[str]) -> None:
+        """
+        Async version of delete - must be implemented by subclass
+        
+        Delete units by IDs asynchronously.
         
         Args:
             unit_ids: List of unit IDs to delete
@@ -208,12 +269,29 @@ class BaseVectorStore(ABC):
         pass
     
     @abstractmethod
-    def update(self, units: list['BaseUnit']) -> None:
+    async def aget(self, unit_ids: list[str]) -> list['BaseUnit']:
         """
-        Update existing units
+        Async version of get - must be implemented by subclass
+        
+        Get units by IDs asynchronously.
         
         Args:
-            units: List of units to update
+            unit_ids: List of unit IDs
+            
+        Returns:
+            List of corresponding units
+        """
+        pass
+    
+    @abstractmethod
+    def update(self, units: Union['BaseUnit', list['BaseUnit']]) -> None:
+        """
+        Update existing unit(s)
+        
+        Supports both single unit and batch operations.
+        
+        Args:
+            units: Single unit or list of units to update
             
         Internal Process:
             1. Re-generate vectors using self.embedder
@@ -222,9 +300,30 @@ class BaseVectorStore(ABC):
         pass
     
     @abstractmethod
+    async def aupdate(self, units: Union['BaseUnit', list['BaseUnit']]) -> None:
+        """
+        Async version of update - must be implemented by subclass
+        
+        Update existing unit(s) asynchronously.
+        
+        Args:
+            units: Single unit or list of units to update
+        """
+        pass
+    
+    @abstractmethod
     def clear(self) -> None:
         """
         Clear all vectors from store
+        """
+        pass
+    
+    @abstractmethod
+    async def aclear(self) -> None:
+        """
+        Async version of clear - must be implemented by subclass
+        
+        Clear all vectors from store asynchronously.
         """
         pass
     

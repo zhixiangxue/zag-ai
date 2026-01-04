@@ -5,7 +5,7 @@ Base retriever class
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from zag.schemas.base import BaseUnit
+from ..schemas.base import BaseUnit
 
 
 class RetrievalResult:

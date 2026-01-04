@@ -6,11 +6,11 @@ from pathlib import Path
 
 from markitdown import MarkItDown
 
-from zag.readers.base import BaseReader
-from zag.schemas.base import BaseDocument, DocumentMetadata
-from zag.schemas.pdf import PDF
-from zag.schemas.markdown import Markdown
-from zag.utils.source import SourceUtils, FileType, SourceInfo
+from .base import BaseReader
+from ..schemas.base import BaseDocument, DocumentMetadata
+from ..schemas.pdf import PDF
+from ..schemas.markdown import Markdown
+from ..utils.source import SourceUtils, FileType, SourceInfo
 
 
 class MarkItDownReader(BaseReader):

@@ -7,9 +7,9 @@ Inspired by LlamaIndex's MarkdownNodeParser
 import re
 from typing import Optional
 
-from zag.splitters.base import BaseSplitter
-from zag.schemas.base import BaseUnit, UnitMetadata
-from zag.schemas.unit import TextUnit
+from ..base import BaseSplitter
+from ...schemas.base import BaseUnit, UnitMetadata
+from ...schemas.unit import TextUnit
 
 
 class MarkdownHeaderSplitter(BaseSplitter):

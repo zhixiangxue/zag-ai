@@ -2,7 +2,7 @@
 Markdown document schema
 """
 
-from zag.schemas.base import BaseDocument, UnitCollection
+from .base import BaseDocument, UnitCollection
 
 
 class Markdown(BaseDocument):

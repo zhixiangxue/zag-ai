@@ -3,7 +3,8 @@ Concrete unit types: TextUnit, TableUnit, ImageUnit
 """
 
 from typing import Any, Optional
-from zag.schemas.base import BaseUnit, UnitType
+
+from .base import BaseUnit, UnitType
 
 
 class TextUnit(BaseUnit):

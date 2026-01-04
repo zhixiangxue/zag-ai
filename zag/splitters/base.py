@@ -5,7 +5,7 @@ Base splitter class for all splitters
 from abc import ABC, abstractmethod
 import uuid
 
-from zag.schemas.base import BaseUnit, UnitCollection, BaseDocument
+from ..schemas.base import BaseUnit, UnitCollection, BaseDocument
 
 
 class BaseSplitter(ABC):

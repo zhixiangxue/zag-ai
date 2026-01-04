@@ -3,7 +3,8 @@ Base extractor class and default extractors
 """
 
 from abc import ABC, abstractmethod
-from zag.schemas.base import BaseUnit
+
+from ..schemas.base import BaseUnit
 
 
 class BaseExtractor(ABC):

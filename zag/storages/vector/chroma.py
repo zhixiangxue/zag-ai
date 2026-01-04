@@ -2,27 +2,56 @@
 ChromaDB vector store implementation
 """
 
+import asyncio
 from typing import Any, Optional, Union
-from zag.storages.vector.base import BaseVectorStore
-from zag.schemas.base import BaseUnit
-from zag.schemas.unit import TextUnit
+
+from .base import BaseVectorStore
+from ...schemas.base import BaseUnit, UnitType
+from ...schemas.unit import TextUnit
 
 
 class ChromaVectorStore(BaseVectorStore):
     """
-    ChromaDB vector store implementation
+    ChromaDB vector store implementation (Embedded Mode)
     
-    A concrete implementation using ChromaDB as the backend.
+    This implementation uses ChromaDB in **embedded mode** (PersistentClient),
+    which runs ChromaDB directly in your application process without requiring
+    a separate server.
+    
+    **Async Support:**
+    - Async methods (aadd, asearch, etc.) use thread pool executor wrapper
+    - This is **not true async I/O**, just running sync code in a thread
+    - For true async support, you would need:
+      1. Run ChromaDB as a server: `chroma run --host localhost --port 8000`
+      2. Use HttpClient/AsyncHttpClient to connect to the server
+      3. See: https://cookbook.chromadb.dev/core/clients/
+    
+    **When to use embedded mode:**
+    - Local development and testing
+    - Embedded applications (ship Chroma with your product)
+    - Simplicity (no server setup required)
+    - Data privacy (all data stays local)
+    - Low latency (no network overhead)
+    
+    **When to use client-server mode (with AsyncHttpClient):**
+    - Production deployments at scale
+    - True async I/O requirements
+    - Multiple applications sharing same vector database
+    - Remote access to vector database
     
     Usage:
         >>> from zag.embedders import Embedder
         >>> embedder = Embedder.from_uri("openai://text-embedding-3-small")
+        >>> 
+        >>> # Embedded mode (current implementation)
         >>> store = ChromaVectorStore(
         ...     embedder=embedder,
         ...     collection_name="my_docs",
-        ...     persist_directory="./chroma_db"
+        ...     persist_directory="./chroma_db"  # Local storage
         ... )
-        >>> store.add(units)
+        >>> store.add(units)  # Sync
+        >>> await store.aadd(units)  # Async (uses executor, not true async I/O)
+        >>> 
         >>> results = store.search("query text", top_k=5)
     """
     
@@ -77,21 +106,28 @@ class ChromaVectorStore(BaseVectorStore):
             metadata={"hnsw:space": "cosine"}  # Use cosine similarity
         )
     
-    def add(self, units: list[BaseUnit]) -> None:
+    def add(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
         """
-        Add units to Chroma vector store
+        Add unit(s) to Chroma vector store
+        
+        Supports both single unit and batch operations:
+        - Single: store.add(unit)
+        - Batch: store.add([unit1, unit2, ...])
         
         Supports mixed unit types (text, table, image) in a single call.
         The method automatically:
-        1. Groups units by type
-        2. Routes each group to appropriate embedder
-        3. Batches embedding calls for efficiency
-        4. Stores all units together
+        1. Normalizes input to list format
+        2. Groups units by type
+        3. Routes each group to appropriate embedder
+        4. Batches embedding calls for efficiency
+        5. Stores all units together
         
         Args:
-            units: List of units to store (can be mixed types)
+            units: Single unit or list of units to store (can be mixed types)
         """
-        from zag.schemas.base import UnitType
+        # Normalize input to list format
+        if isinstance(units, BaseUnit):
+            units = [units]
         
         if not units:
             return
@@ -163,6 +199,31 @@ class ChromaVectorStore(BaseVectorStore):
             documents=all_documents
         )
     
+    async def aadd(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
+        """
+        Async version of add (uses thread pool executor)
+        
+        **Important:** This is NOT true async I/O. ChromaDB's PersistentClient
+        (used in embedded mode) does not support native async operations.
+        This method runs the synchronous add() in a thread pool executor.
+        
+        For true async I/O, you need:
+        1. Run ChromaDB as a server: `chroma run`
+        2. Use chromadb.AsyncHttpClient instead of PersistentClient
+        3. See: https://cookbook.chromadb.dev/core/clients/#http-client
+        
+        Args:
+            units: Single unit or list of units to store
+            
+        Note:
+            While this provides async interface compatibility, it doesn't
+            eliminate blocking I/O. It only moves the blocking operation
+            to a thread pool, which may help with concurrency but won't
+            improve I/O performance like true async would.
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.add, units)
+    
     def _extract_metadata(self, unit: BaseUnit) -> dict:
         """
         Extract metadata from unit for storage
@@ -213,8 +274,6 @@ class ChromaVectorStore(BaseVectorStore):
         Returns:
             List of matching units, sorted by similarity
         """
-        from zag.schemas.base import UnitType
-        
         # Determine query type and extract content
         if isinstance(query, str):
             # String query → use text_embedder
@@ -272,6 +331,28 @@ class ChromaVectorStore(BaseVectorStore):
         
         return units
     
+    async def asearch(
+        self,
+        query: Union[str, BaseUnit],
+        top_k: int = 10,
+        filter: Optional[dict[str, Any]] = None
+    ) -> list[BaseUnit]:
+        """
+        Async version of search (uses thread pool executor)
+        
+        **Important:** This is NOT true async I/O. See aadd() docstring for details.
+        
+        Args:
+            query: Query content (can be text string or Unit)
+            top_k: Number of results to return
+            filter: Optional metadata filters
+            
+        Returns:
+            List of matching units, sorted by similarity
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.search, query, top_k, filter)
+    
     def delete(self, unit_ids: list[str]) -> None:
         """
         Delete units by IDs from Chroma
@@ -283,6 +364,18 @@ class ChromaVectorStore(BaseVectorStore):
             return
         
         self.collection.delete(ids=unit_ids)
+    
+    async def adelete(self, unit_ids: list[str]) -> None:
+        """
+        Async version of delete (uses thread pool executor)
+        
+        **Important:** This is NOT true async I/O. See aadd() docstring for details.
+        
+        Args:
+            unit_ids: List of unit IDs to delete
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.delete, unit_ids)
     
     def get(self, unit_ids: list[str]) -> list[BaseUnit]:
         """
@@ -323,13 +416,34 @@ class ChromaVectorStore(BaseVectorStore):
         
         return units
     
-    def update(self, units: list[BaseUnit]) -> None:
+    async def aget(self, unit_ids: list[str]) -> list[BaseUnit]:
         """
-        Update existing units in Chroma
+        Async version of get (uses thread pool executor)
+        
+        **Important:** This is NOT true async I/O. See aadd() docstring for details.
         
         Args:
-            units: List of units to update
+            unit_ids: List of unit IDs
+            
+        Returns:
+            List of corresponding units
         """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.get, unit_ids)
+    
+    def update(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
+        """
+        Update existing unit(s) in Chroma
+        
+        Supports both single unit and batch operations.
+        
+        Args:
+            units: Single unit or list of units to update
+        """
+        # Normalize input to list format
+        if isinstance(units, BaseUnit):
+            units = [units]
+        
         if not units:
             return
         
@@ -337,6 +451,18 @@ class ChromaVectorStore(BaseVectorStore):
         unit_ids = [unit.unit_id for unit in units]
         self.delete(unit_ids)
         self.add(units)
+    
+    async def aupdate(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
+        """
+        Async version of update (uses thread pool executor)
+        
+        **Important:** This is NOT true async I/O. See aadd() docstring for details.
+        
+        Args:
+            units: Single unit or list of units to update
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.update, units)
     
     def clear(self) -> None:
         """
@@ -348,6 +474,15 @@ class ChromaVectorStore(BaseVectorStore):
             name=self.collection_name,
             metadata={"hnsw:space": "cosine"}
         )
+    
+    async def aclear(self) -> None:
+        """
+        Async version of clear (uses thread pool executor)
+        
+        **Important:** This is NOT true async I/O. See aadd() docstring for details.
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.clear)
     
     @property
     def dimension(self) -> int:

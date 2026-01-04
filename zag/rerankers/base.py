@@ -4,7 +4,7 @@ Base reranker class
 
 from abc import ABC, abstractmethod
 
-from zag.retrievers.base import RetrievalResult
+from ..retrievers.base import RetrievalResult
 
 
 class BaseReranker(ABC):
