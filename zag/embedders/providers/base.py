@@ -1,16 +1,16 @@
 """
-Base embedder class
+Provider base class (internal use only)
 """
 
 from abc import ABC, abstractmethod
-from typing import Union
 
 
-class BaseEmbedder(ABC):
+class BaseProvider(ABC):
     """
-    Base class for all embedders
+    Base provider class for embedder implementations
     
-    Embedders convert text into dense vector representations
+    All provider implementations must inherit from this class
+    and implement the required methods
     """
     
     @abstractmethod

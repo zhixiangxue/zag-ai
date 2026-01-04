@@ -2,6 +2,10 @@
 Vector storage module
 """
 
-# TODO: Implement vector stores
+from zag.storages.vector.base import BaseVectorStore
+from zag.storages.vector.chroma import ChromaVectorStore
 
-__all__ = []
+__all__ = [
+    "BaseVectorStore",
+    "ChromaVectorStore",
+]

@@ -4,6 +4,15 @@ Zag AI - RAG Framework
 
 __version__ = "0.1.0"
 
+# Exceptions
+from zag.exceptions import (
+    ZagError,
+    ConfigurationError,
+    ValidationError,
+    ProcessingError,
+    ResourceError,
+)
+
 # Core schemas
 from zag.schemas.base import (
     BaseUnit, 
@@ -29,7 +38,18 @@ from zag.splitters.base import BaseSplitter
 # Extractors
 from zag.extractors.base import BaseExtractor, IdentityExtractor
 
+# Embedders
+from zag.embedders import Embedder
+
 __all__ = [
+    # Version
+    "__version__",
+    # Exceptions
+    "ZagError",
+    "ConfigurationError",
+    "ValidationError",
+    "ProcessingError",
+    "ResourceError",
     # Schemas
     "BaseUnit",
     "UnitRegistry",
@@ -52,4 +72,6 @@ __all__ = [
     # Extractors
     "BaseExtractor",
     "IdentityExtractor",
+    # Embedders
+    "Embedder",
 ]

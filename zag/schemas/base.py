@@ -31,6 +31,15 @@ class RelationType(str, Enum):
     VISUAL_CONTEXT = "visual_context"
 
 
+class UnitType(str, Enum):
+    """Unit content types"""
+    
+    TEXT = "text"
+    TABLE = "table"
+    IMAGE = "image"
+    BASE = "base"  # Base/unknown type
+
+
 class DocumentMetadata(BaseModel):
     """
     Structured metadata for documents
@@ -139,8 +148,11 @@ class BaseUnit(BaseModel):
     
     unit_id: str
     content: Any
-    unit_type: str = "base"
+    unit_type: UnitType = UnitType.BASE
     metadata: UnitMetadata = Field(default_factory=UnitMetadata)
+    
+    # Embedding vector (optional, for caching)
+    embedding: Optional[list[float]] = None
     
     # Chain relationships (managed by Splitter)
     prev_unit_id: Optional[str] = None

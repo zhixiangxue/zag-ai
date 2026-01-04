@@ -3,70 +3,221 @@ Base vector store class
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
-from dataclasses import dataclass
-
-
-@dataclass
-class VectorSearchResult:
-    """Result from vector search"""
-    
-    unit_id: str
-    score: float
-    metadata: dict[str, Any]
+from typing import Any, Optional, Union
 
 
 class BaseVectorStore(ABC):
     """
     Base class for vector storage
     
-    VectorStore stores embeddings and performs similarity search
+    VectorStore manages embedder(s) and provides vector storage/retrieval capabilities.
+    Supports both single multimodal embedder and separate embedders for different content types.
+    
+    Design Philosophy:
+        - VectorStore naturally knows its embedding model(s)
+        - Users don't need to manually manage embedding process
+        - Ensures consistency between storage and retrieval embeddings
+        - Supports both multimodal and specialized embedders
+    
+    Responsibilities:
+        - Manage embedder(s) (ensure same model for add/search)
+        - Route different unit types to appropriate embedders
+        - Automatically convert units to vectors and store
+        - Automatically convert query to vector and search
     """
     
-    @abstractmethod
-    def add(
+    def __init__(
         self,
-        ids: list[str],
-        vectors: list[list[float]],
-        metadatas: Optional[list[dict[str, Any]]] = None
-    ) -> None:
+        embedder: Optional['BaseEmbedder'] = None,
+        text_embedder: Optional['BaseEmbedder'] = None,
+        image_embedder: Optional['BaseEmbedder'] = None,
+        **kwargs
+    ):
         """
-        Add vectors to store
+        Initialize vector store with embedder(s)
+        
+        Two usage patterns:
+        
+        Pattern 1 (Recommended): Single multimodal embedder
+            Use when your embedder supports multiple content types (text, image, etc.)
+            Example: OpenAI CLIP, Alibaba Tongyi Multimodal
+            
+        Pattern 2: Separate embedders for different types
+            Use when you want specialized embedders for each content type
+            Example: Bailian for text + CLIP for images
         
         Args:
-            ids: List of unit IDs
-            vectors: List of embedding vectors
-            metadatas: Optional list of metadata dicts
+            embedder: Single embedder for all content types (multimodal)
+                     If provided, this will be used for all unit types
+            text_embedder: Embedder specifically for text and table units
+                          Only used when 'embedder' is not provided
+            image_embedder: Embedder specifically for image units
+                           Only used when 'embedder' is not provided
+            **kwargs: Implementation-specific parameters
+        
+        Raises:
+            ValueError: If neither 'embedder' nor 'text_embedder' is provided
+        
+        Examples:
+            # Pattern 1: Multimodal embedder (handles text and images)
+            >>> multimodal_emb = Embedder('openai/clip-vit')
+            >>> store = ChromaVectorStore(embedder=multimodal_emb)
+            
+            # Pattern 2: Separate embedders for text and images
+            >>> text_emb = Embedder('bailian/text-embedding-v3')
+            >>> image_emb = Embedder('openai/clip-vit')
+            >>> store = ChromaVectorStore(
+            ...     text_embedder=text_emb,
+            ...     image_embedder=image_emb
+            ... )
+            
+            # Pattern 3: Text-only (most common case)
+            >>> text_emb = Embedder('bailian/text-embedding-v3')
+            >>> store = ChromaVectorStore(embedder=text_emb)
+            >>> # or
+            >>> store = ChromaVectorStore(text_embedder=text_emb)
+        """
+        if embedder:
+            # Pattern 1: Single multimodal embedder
+            # Use the same embedder for all content types
+            self.embedder = embedder
+            self.text_embedder = embedder
+            self.image_embedder = embedder
+            self._is_multimodal = True
+        else:
+            # Pattern 2: Separate embedders
+            # Require at least text_embedder for text and table units
+            if not text_embedder:
+                raise ValueError(
+                    "Must provide either 'embedder' (for multimodal) "
+                    "or at least 'text_embedder' for text/table units"
+                )
+            self.embedder = None
+            self.text_embedder = text_embedder
+            self.image_embedder = image_embedder
+            self._is_multimodal = False
+    
+    def _get_embedder_for_unit(self, unit: 'BaseUnit') -> 'BaseEmbedder':
+        """
+        Get appropriate embedder for a given unit (routing logic)
+        
+        Routing rules:
+        - Multimodal mode: All unit types use the same embedder
+        - Separate mode:
+            * TextUnit → text_embedder
+            * TableUnit → text_embedder (tables are converted to text at unit level)
+            * ImageUnit → image_embedder
+        
+        Args:
+            unit: The unit to get embedder for
+        
+        Returns:
+            The appropriate embedder for this unit type
+        
+        Raises:
+            ValueError: If image_embedder is required but not provided
+        """
+        from zag.schemas.base import UnitType
+        
+        if self._is_multimodal:
+            # Multimodal embedder handles all types
+            return self.embedder
+        
+        # Separate embedders: route by type
+        if unit.unit_type == UnitType.IMAGE:
+            if not self.image_embedder:
+                raise ValueError(
+                    f"ImageUnit requires 'image_embedder', but it was not provided. "
+                    f"Please provide either a multimodal 'embedder' or 'image_embedder'."
+                )
+            return self.image_embedder
+        else:
+            # TextUnit and TableUnit both use text_embedder
+            # (TableUnit.content should already be text representation)
+            return self.text_embedder
+    
+    @abstractmethod
+    def add(self, units: list['BaseUnit']) -> None:
+        """
+        Add units to vector store
+        
+        Args:
+            units: List of units to store
+            
+        Internal Process:
+            1. Use self.embedder to generate vectors for units
+            2. Store vectors and metadata to vector database
+            
+        Note:
+            - Users don't need to pre-embed units
+            - VectorStore automatically calls embedder
+            - Ensures unified embedding model
         """
         pass
     
     @abstractmethod
     def search(
         self,
-        query_vector: list[float],
+        query: Union[str, 'BaseUnit'],
         top_k: int = 10,
-        filter_dict: Optional[dict[str, Any]] = None
-    ) -> list[VectorSearchResult]:
+        filter: Optional[dict[str, Any]] = None
+    ) -> list['BaseUnit']:
         """
-        Search for similar vectors
+        Search for similar units
         
         Args:
-            query_vector: Query embedding vector
+            query: Query content (can be text or Unit)
             top_k: Number of results to return
-            filter_dict: Optional metadata filters
+            filter: Optional metadata filters
             
         Returns:
-            List of search results with unit IDs and scores
+            List of matching units, sorted by similarity
+            
+        Internal Process:
+            1. Use self.embedder to convert query to vector
+            2. Search similar vectors in vector database
+            3. Return corresponding units
+            
+        Note:
+            - Users don't need to pre-embed query
+            - Automatically uses same embedder as storage
         """
         pass
     
     @abstractmethod
-    def delete(self, ids: list[str]) -> None:
+    def delete(self, unit_ids: list[str]) -> None:
         """
-        Delete vectors by IDs
+        Delete units by IDs
         
         Args:
-            ids: List of unit IDs to delete
+            unit_ids: List of unit IDs to delete
+        """
+        pass
+    
+    @abstractmethod
+    def get(self, unit_ids: list[str]) -> list['BaseUnit']:
+        """
+        Get units by IDs
+        
+        Args:
+            unit_ids: List of unit IDs
+            
+        Returns:
+            List of corresponding units
+        """
+        pass
+    
+    @abstractmethod
+    def update(self, units: list['BaseUnit']) -> None:
+        """
+        Update existing units
+        
+        Args:
+            units: List of units to update
+            
+        Internal Process:
+            1. Re-generate vectors using self.embedder
+            2. Update records in vector database
         """
         pass
     
@@ -81,9 +232,18 @@ class BaseVectorStore(ABC):
     @abstractmethod
     def dimension(self) -> int:
         """
-        Get the embedding dimension
+        Get vector dimension
         
         Returns:
-            Dimension of stored vectors
+            Vector dimension (determined by embedder)
         """
         pass
+    
+    def get_embedder(self) -> 'BaseEmbedder':
+        """
+        Get current embedder
+        
+        Returns:
+            Current embedder instance
+        """
+        return self.embedder
