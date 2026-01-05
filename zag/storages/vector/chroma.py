@@ -310,6 +310,7 @@ class ChromaVectorStore(BaseVectorStore):
             for i, unit_id in enumerate(results['ids'][0]):
                 metadata = results['metadatas'][0][i]
                 document = results['documents'][0][i]
+                distance = results['distances'][0][i] if 'distances' in results else None
                 
                 # Reconstruct unit based on type
                 # Note: In production, you might want to store full unit data
@@ -326,6 +327,12 @@ class ChromaVectorStore(BaseVectorStore):
                 
                 if 'source_doc_id' in metadata and metadata['source_doc_id']:
                     unit.source_doc_id = metadata['source_doc_id']
+                
+                # Attach similarity score
+                # Chroma uses cosine distance by default (lower is more similar)
+                # Convert to similarity score: similarity = 1 - distance
+                if distance is not None:
+                    unit.score = 1.0 - distance
                 
                 units.append(unit)
         

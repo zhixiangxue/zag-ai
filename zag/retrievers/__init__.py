@@ -1,8 +1,26 @@
 """
-Retrievers module
-Search and retrieval
+Retriever module for semantic search and retrieval
+
+Architecture:
+    - base.py: BaseRetriever abstract class
+    - basic/: Basic layer retrievers (encapsulate storage calls)
+    - composite/: Composite layer retrievers (combine multiple retrievers)
 """
 
-# TODO: Implement retrievers
+from .base import BaseRetriever
 
-__all__ = []
+# Basic layer retrievers
+from .basic import VectorRetriever
+
+# Composite layer retrievers
+from .composite import QueryFusionRetriever, FusionMode
+
+__all__ = [
+    # Base
+    "BaseRetriever",
+    # Basic layer
+    "VectorRetriever",
+    # Composite layer
+    "QueryFusionRetriever",
+    "FusionMode",
+]

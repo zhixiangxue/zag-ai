@@ -36,10 +36,19 @@ from zag.readers.base import BaseReader
 from zag.splitters.base import BaseSplitter
 
 # Extractors
-from zag.extractors.base import BaseExtractor, IdentityExtractor
+from zag.extractors.base import BaseExtractor
+from zag.extractors import TableExtractor, StructuredExtractor, KeywordExtractor
 
 # Embedders
 from zag.embedders import Embedder
+
+# Retrievers
+from zag.retrievers import (
+    BaseRetriever,
+    VectorRetriever,
+    QueryFusionRetriever,
+    FusionMode,
+)
 
 __all__ = [
     # Version
@@ -71,7 +80,14 @@ __all__ = [
     "BaseSplitter",
     # Extractors
     "BaseExtractor",
-    "IdentityExtractor",
+    "TableExtractor",
+    "StructuredExtractor",
+    "KeywordExtractor",
     # Embedders
     "Embedder",
+    # Retrievers
+    "BaseRetriever",
+    "VectorRetriever",
+    "QueryFusionRetriever",
+    "FusionMode",
 ]

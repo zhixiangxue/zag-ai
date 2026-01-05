@@ -154,6 +154,9 @@ class BaseUnit(BaseModel):
     # Embedding vector (optional, for caching)
     embedding: Optional[list[float]] = None
     
+    # Retrieval score (set by retrievers)
+    score: Optional[float] = None
+    
     # Chain relationships (managed by Splitter)
     prev_unit_id: Optional[str] = None
     next_unit_id: Optional[str] = None

@@ -3,6 +3,10 @@ Indexers module
 Index building and management
 """
 
-# TODO: Implement indexers
+from zag.indexers.base import BaseIndexer
+from zag.indexers.vector_indexer import VectorIndexer
 
-__all__ = []
+__all__ = [
+    "BaseIndexer",
+    "VectorIndexer",
+]
