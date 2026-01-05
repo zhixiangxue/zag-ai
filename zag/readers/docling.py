@@ -40,12 +40,34 @@ class DoclingReader(BaseReader):
         reader = DoclingReader()
         doc = reader.read("path/to/file.pdf")
         
-        # Use VLM pipeline - just pass vlm_pipeline_options
+        # Use VLM pipeline with local model
         from docling.datamodel.pipeline_options import VlmPipelineOptions
         from docling.datamodel import vlm_model_specs
         
         vlm_options = VlmPipelineOptions(
             vlm_options=vlm_model_specs.SMOLDOCLING_MLX
+        )
+        reader = DoclingReader(vlm_pipeline_options=vlm_options)
+        
+        # Use VLM pipeline with remote API (e.g., Alibaba Qwen-VL)
+        from docling.datamodel.pipeline_options import VlmPipelineOptions
+        from docling.datamodel.pipeline_options_vlm_model import ApiVlmOptions, ResponseFormat
+        
+        vlm_options = VlmPipelineOptions(
+            enable_remote_services=True,
+            vlm_options=ApiVlmOptions(
+                url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                params=dict(
+                    model="qwen-vl-max-latest",  # or qwen-vl-plus, qwen2-vl-7b-instruct
+                    max_tokens=4096,
+                ),
+                headers={
+                    "Authorization": "Bearer YOUR_API_KEY",  # Replace with your API key
+                },
+                prompt="Convert this page to markdown.",
+                timeout=90,
+                response_format=ResponseFormat.MARKDOWN,
+            )
         )
         reader = DoclingReader(vlm_pipeline_options=vlm_options)
         
@@ -57,18 +79,32 @@ class DoclingReader(BaseReader):
             do_table_structure=True
         )
         reader = DoclingReader(pdf_pipeline_options=pdf_options)
+        
+        # GPU acceleration (configure via pipeline options)
+        from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+        
+        pdf_options = PdfPipelineOptions()
+        pdf_options.accelerator_options = AcceleratorOptions(
+            num_threads=8,
+            device=AcceleratorDevice.CUDA  # or AUTO, CPU, MPS
+        )
+        reader = DoclingReader(pdf_pipeline_options=pdf_options)
     """
     
     @staticmethod
     def _get_supported_types() -> set[FileType]:
-        """Get supported file types"""
+        """
+        Get supported file types
+        
+        Note: All formats except PDF use Docling's default pipeline.
+        Only PDF format can be customized via pdf_pipeline_options or vlm_pipeline_options.
+        """
         return {
             FileType.PDF,
             FileType.WORD,
             FileType.POWERPOINT,
             FileType.EXCEL,
             FileType.HTML,
-            FileType.IMAGE,
         }
     
     def __init__(
@@ -101,8 +137,14 @@ class DoclingReader(BaseReader):
         """
         Build format options for DocumentConverter
         
+        Note:
+            - Only PDF format is configured here with custom pipeline options
+            - Other formats (WORD, POWERPOINT, EXCEL, HTML, IMAGE) use Docling's 
+              default pipeline, which is the recommended approach per official examples
+            - This matches the official Docling multi-format conversion pattern
+        
         Returns:
-            Dict of format options
+            Dict of format options (currently only PDF is customized)
         """
         # If VLM options provided, use VLM pipeline
         if self._vlm_pipeline_options is not None:
