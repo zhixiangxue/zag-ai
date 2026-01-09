@@ -57,4 +57,4 @@ class BaseSplitter(ABC):
     @staticmethod
     def generate_unit_id() -> str:
         """Generate a unique unit ID"""
-        return f"unit_{uuid.uuid4().hex[:12]}"
+        return str(uuid.uuid4())

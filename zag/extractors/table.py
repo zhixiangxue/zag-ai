@@ -3,20 +3,26 @@ Table extractor for generating natural language descriptions of tables
 """
 
 from typing import List, Dict, Sequence
+import re
 
 from .base import BaseExtractor
-from ..schemas.unit import TableUnit
+from ..schemas.unit import TableUnit, TextUnit
 
 
 class TableExtractor(BaseExtractor):
     """
-    Table extractor that generates natural language descriptions for TableUnits.
+    Table extractor that generates natural language descriptions for tables.
+    
+    Supports:
+    1. TableUnit: Generate embedding_content (summary) from json_data
+    2. TextUnit: Replace tables in content with summaries for embedding_content
     
     Key design:
     - Reuses TableUnit.json_data (already structured)
     - Does not re-parse tables
-    - Only generates table_summary for vector retrieval
-    - Does not duplicate json_data storage
+    - Only generates embedding_content for vector retrieval
+    - Does not modify the unit itself (returns Dict with extracted data)
+    - Automatically detects and uses source language
     
     Args:
         llm_uri: LLM URI in format: provider/model
@@ -24,16 +30,20 @@ class TableExtractor(BaseExtractor):
         api_key: API key for the LLM provider
     
     Example:
+        >>> # For TableUnits
         >>> extractor = TableExtractor(
         ...     llm_uri="openai/gpt-4o-mini",
         ...     api_key="sk-xxx"
         ... )
-        >>> units = extractor(units)
-        >>> # Access results
-        >>> for unit in units:
-        ...     if isinstance(unit, TableUnit):
-        ...         print(f"Summary: {unit.metadata['table_summary']}")
-        ...         print(f"Data: {unit.json_data}")
+        >>> results = await extractor.aextract(table_units)
+        >>> for unit, metadata in zip(table_units, results):
+        ...     unit.embedding_content = metadata.get("embedding_content")
+        >>> 
+        >>> # For TextUnits with tables
+        >>> results = await extractor.aextract(text_units)
+        >>> for unit, metadata in zip(text_units, results):
+        ...     if metadata.get("embedding_content"):
+        ...         unit.embedding_content = metadata["embedding_content"]
     """
     
     def __init__(self, llm_uri: str, api_key: str):
@@ -45,29 +55,104 @@ class TableExtractor(BaseExtractor):
         self._conv = chak.Conversation(llm_uri, api_key=api_key)
     
     async def _extract_from_unit(self, unit) -> Dict:
-        """Extract table information from a single unit."""
-        if not isinstance(unit, TableUnit):
-            return {}
+        """
+        Extract table information from a single unit.
         
-        # Reuse structured data from TableUnit
-        json_data = unit.json_data
-        if not json_data:
-            return {}
+        Returns:
+            Dict with extracted metadata (does not modify unit)
+        """
+        # Case 1: TableUnit - generate summary
+        if isinstance(unit, TableUnit):
+            json_data = unit.json_data
+            if not json_data:
+                return {}
+            
+            summary = await self._generate_table_summary(json_data)
+            return {"embedding_content": summary}
         
-        # Generate natural language description
-        prompt = f"""以下是一个表格的结构化数据：
+        # Case 2: TextUnit - replace tables with summaries
+        if isinstance(unit, TextUnit):
+            if self._has_markdown_tables(unit.content):
+                processed = await self._process_text_with_tables(unit)
+                return {"embedding_content": processed}
+        
+        return {}
+    
+    async def _process_text_with_tables(self, text_unit: TextUnit) -> str:
+        """
+        Replace tables in TextUnit.content with summaries.
+        
+        Args:
+            text_unit: TextUnit containing Markdown tables
+        
+        Returns:
+            Processed text with tables replaced by natural language summaries
+        """
+        from ..parsers import TableParser
+        
+        content = text_unit.content
+        parser = TableParser()
+        
+        # Find all tables
+        matches = parser.TABLE_PATTERN.findall(content)
+        if not matches:
+            return content
+        
+        # Parse all tables and prepare tasks for concurrent processing
+        import asyncio
+        tasks = []
+        valid_matches = []
+        
+        for table_text in matches:
+            json_data = parser._parse_table_text(table_text)
+            if json_data:
+                tasks.append(self._generate_table_summary(json_data))
+                valid_matches.append(table_text)
+        
+        if not tasks:
+            return content
+        
+        # Generate summaries concurrently
+        summaries = await asyncio.gather(*tasks)
+        
+        # Replace tables with summaries
+        modified_content = content
+        for table_text, summary in zip(valid_matches, summaries):
+            modified_content = modified_content.replace(table_text, summary)
+        
+        return modified_content
+    
+    def _has_markdown_tables(self, content: str) -> bool:
+        """Check if content contains Markdown tables"""
+        from ..parsers import TableParser
+        return bool(TableParser.TABLE_PATTERN.search(content))
+    
+    async def _generate_table_summary(self, json_data: dict) -> str:
+        """
+        Generate natural language description from table data.
+        
+        Converts table to complete natural language without losing information.
+        LLM will automatically detect and use the source language.
+        """
+        prompt = f"""Convert the following table into natural language description. Use the SAME LANGUAGE as the table content.
 
+Table data:
 {json_data}
 
-请用 2-3 句话总结这个表格的内容，突出关键数据和对比关系。
-要求：使用完整的句子，便于向量检索。
+Requirements:
+- Use the same language as the table (e.g., if table is in Chinese, respond in Chinese)
+- Include ALL data from the table - do NOT summarize or omit any information
+- Describe each row with complete details from all columns
+- Use complete sentences suitable for vector search
+- Organize by rows for clarity (e.g., "Row 1: ..., Row 2: ..." or "Product A: ..., Product B: ...")
+- Output ONLY the table description, do NOT include any surrounding text or context
+- End with a newline to separate from following content
 
-摘要："""
+Description:"""
         
         response = await self._conv.asend(prompt)
-        
-        # Only return summary, do not duplicate json_data
-        return {"table_summary": response.content.strip()}
+        # Add newlines to clearly separate from surrounding content
+        return "\n" + response.content.strip() + "\n\n"
     
     async def aextract(self, units: Sequence) -> List[Dict]:
         """Batch extract metadata from units."""

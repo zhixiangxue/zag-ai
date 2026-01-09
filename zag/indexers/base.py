@@ -22,11 +22,11 @@ class BaseIndexer(ABC):
         - Indexer coordinates multiple stores if needed
     
     Key Differences from VectorStore:
-        - Indexer: build(), add(), delete() (index management)
+        - Indexer: add(), update(), delete() (index management)
         - VectorStore: add(), search(), delete() (storage operations)
     
     Responsibilities:
-        - Build and manage indices (may involve multiple storages)
+        - Manage indices (may involve multiple storages)
         - Provide high-level indexing operations
         - Support index persistence and loading
         - Unified sync/async interfaces
@@ -36,42 +36,6 @@ class BaseIndexer(ABC):
         - Single: indexer.add(unit)
         - Batch: indexer.add([unit1, unit2, ...])
     """
-    
-    @abstractmethod
-    def build(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
-        """
-        Build index from units (full rebuild)
-        
-        This method clears the existing index and builds from scratch.
-        Use this when you want to completely replace the index content.
-        
-        Args:
-            units: Single unit or list of units to index
-        
-        Note:
-            - This is a destructive operation (clears existing index)
-            - For incremental updates, use add() instead
-            - Batch operations are more efficient
-        
-        Example:
-            >>> indexer.build(units)  # Rebuild entire index
-        """
-        pass
-    
-    @abstractmethod
-    async def abuild(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
-        """
-        Async version of build - build index from units
-        
-        Args:
-            units: Single unit or list of units to index
-        
-        Implementation Notes:
-            - True async if backend supports it (e.g., Qdrant)
-            - Use executor wrapper for sync backends (e.g., ChromaDB)
-            - Document async support level in subclass
-        """
-        pass
     
     @abstractmethod
     def add(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:

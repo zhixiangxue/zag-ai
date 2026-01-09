@@ -15,12 +15,16 @@ Environment Variables:
 
 import os
 import time
+import ssl
 from pathlib import Path
 from dotenv import load_dotenv
 from rich import print
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
+
+# Disable SSL verification for HuggingFace downloads (workaround for SSL issues)
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Load environment variables from .env file
 load_dotenv()
@@ -121,7 +125,14 @@ def test_default_pipeline(pdf_path: str, output_dir: Path):
     print("\n[yellow]Running Test 1: Default Standard PDF Pipeline...[/yellow]")
     start_time = time.time()
     
-    reader = DoclingReader()
+    # Use CPU to avoid MPS issues on macOS < 13.2
+    pdf_options = PdfPipelineOptions()
+    pdf_options.accelerator_options = AcceleratorOptions(
+        num_threads=8,
+        device=AcceleratorDevice.CPU  # Force CPU to avoid MPS errors
+    )
+    
+    reader = DoclingReader(pdf_pipeline_options=pdf_options)
     doc = reader.read(pdf_path)
     
     elapsed_time = time.time() - start_time
@@ -311,8 +322,9 @@ def compare_results(results: dict):
 
 def main():
     # PDF file path
-    pdf_path = "../tmp/Thunderbird Product Overview 2025 - No Doc.pdf"
-    
+    # pdf_path = "/Users/zhixiang.xue/zeitro/zag-ai/tmp/Thunderbird Product Overview 2025 - No Doc.pdf"
+    pdf_path = "/Users/zhixiang.xue/zeitro/zag-ai/tmp/Complex Table Test.pdf"
+
     # Create output directory
     output_dir = Path("output")
     output_dir.mkdir(exist_ok=True)
@@ -344,30 +356,30 @@ def main():
     except Exception as e:
         print(f"Error in default pipeline test: {e}")
     
-    try:
-        results["With OCR"] = test_with_ocr(pdf_path, output_dir)
-    except Exception as e:
-        print(f"Error in OCR enabled test: {e}")
+    # try:
+    #     results["With OCR"] = test_with_ocr(pdf_path, output_dir)
+    # except Exception as e:
+    #     print(f"Error in OCR enabled test: {e}")
     
-    try:
-        results["Without OCR"] = test_without_ocr(pdf_path, output_dir)
-    except Exception as e:
-        print(f"Error in OCR disabled test: {e}")
+    # try:
+    #     results["Without OCR"] = test_without_ocr(pdf_path, output_dir)
+    # except Exception as e:
+    #     print(f"Error in OCR disabled test: {e}")
     
-    try:
-        results["GPU AUTO"] = test_with_gpu_auto(pdf_path, output_dir)
-    except Exception as e:
-        print(f"Error in GPU AUTO test: {e}")
+    # try:
+    #     results["GPU AUTO"] = test_with_gpu_auto(pdf_path, output_dir)
+    # except Exception as e:
+    #     print(f"Error in GPU AUTO test: {e}")
     
-    try:
-        results["GPU CUDA"] = test_with_gpu_cuda(pdf_path, output_dir)
-    except Exception as e:
-        print(f"Error in GPU CUDA test: {e}")
+    # try:
+    #     results["GPU CUDA"] = test_with_gpu_cuda(pdf_path, output_dir)
+    # except Exception as e:
+    #     print(f"Error in GPU CUDA test: {e}")
     
-    try:
-        results["VLM Qwen"] = test_vlm_pipeline_qwen(pdf_path, output_dir, bailian_api_key)
-    except Exception as e:
-        print(f"Error in VLM Qwen test: {e}")
+    # try:
+    #     results["VLM Qwen"] = test_vlm_pipeline_qwen(pdf_path, output_dir, bailian_api_key)
+    # except Exception as e:
+    #     print(f"Error in VLM Qwen test: {e}")
     
     # Compare results
     compare_results(results)

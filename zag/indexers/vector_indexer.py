@@ -18,13 +18,12 @@ class VectorIndexer(BaseIndexer):
     Vector indexer for managing vector-based indices
     
     This indexer wraps a VectorStore and provides:
-    - High-level index management (build, add, update, delete)
+    - High-level index management (add, update, delete)
     - Unified sync/async interfaces
     - Support for single/batch operations
     
     Design:
         - Delegates storage operations to VectorStore
-        - Adds index management logic (build vs add semantics)
         - Provides async wrappers for sync-only backends
     
     Usage:
@@ -39,11 +38,8 @@ class VectorIndexer(BaseIndexer):
         >>> # Create indexer
         >>> indexer = VectorIndexer(vector_store=store)
         >>> 
-        >>> # Build index
-        >>> indexer.build(units)  # Full rebuild
-        >>> 
-        >>> # Add more units
-        >>> indexer.add(new_units)  # Incremental
+        >>> # Add units
+        >>> indexer.add(units)  # Add to index
     """
     
     def __init__(
@@ -99,53 +95,6 @@ class VectorIndexer(BaseIndexer):
         if isinstance(unit_ids, str):
             return [unit_ids]
         return unit_ids
-    
-    def build(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
-        """
-        Build index from units (full rebuild)
-        
-        Clears the existing index and builds from scratch.
-        
-        Args:
-            units: Single unit or list of units to index
-        
-        Process:
-            1. Clear existing index
-            2. Add all units to empty index
-        
-        Example:
-            >>> indexer.build(all_units)  # Rebuild entire index
-        """
-        units_list = self._normalize_units(units)
-        
-        # Clear existing index
-        self.vector_store.clear()
-        
-        # Add all units
-        if units_list:
-            self.vector_store.add(units_list)
-    
-    async def abuild(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
-        """
-        Async version of build
-        
-        Args:
-            units: Single unit or list of units to index
-        
-        Implementation:
-            Try to use async methods, fallback to sync with executor
-        """
-        units_list = self._normalize_units(units)
-        
-        try:
-            # Try true async methods
-            await self.vector_store.aclear()
-            if units_list:
-                await self.vector_store.aadd(units_list)
-        except (AttributeError, NotImplementedError):
-            # Fallback to sync with executor
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(self._executor, self.build, units)
     
     def add(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
         """

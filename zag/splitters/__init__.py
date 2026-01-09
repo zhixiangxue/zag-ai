@@ -2,10 +2,12 @@
 Splitters module
 """
 
-from zag.splitters.base import BaseSplitter
-from zag.splitters.markdown import MarkdownHeaderSplitter
+from .base import BaseSplitter
+from .markdown import MarkdownHeaderSplitter
+from .composite import RecursiveMergingSplitter
 
 __all__ = [
     "BaseSplitter",
     "MarkdownHeaderSplitter",
+    "RecursiveMergingSplitter",
 ]

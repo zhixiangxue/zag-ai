@@ -4,6 +4,7 @@ Query fusion retriever - composite layer retriever for combining multiple retrie
 
 from typing import Any, Optional
 from enum import Enum
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..base import BaseRetriever
 from ...schemas.base import BaseUnit
@@ -67,6 +68,7 @@ class QueryFusionRetriever(BaseRetriever):
         mode: FusionMode = FusionMode.SIMPLE,
         top_k: int = 10,
         retriever_weights: Optional[list[float]] = None,
+        executor: Optional[ThreadPoolExecutor] = None,
     ):
         """
         Initialize query fusion retriever
@@ -77,6 +79,8 @@ class QueryFusionRetriever(BaseRetriever):
             top_k: Default number of results to return
             retriever_weights: Weight for each retriever (only used in RELATIVE_SCORE mode)
                                If None, equal weights are used
+            executor: Optional thread pool for concurrent retrieval
+                     If None, creates a default executor with 4 workers
         
         Raises:
             ValueError: If retrievers list is empty or weights length doesn't match
@@ -93,6 +97,7 @@ class QueryFusionRetriever(BaseRetriever):
         self.retrievers = retrievers
         self.mode = mode
         self.default_top_k = top_k
+        self._executor = executor or ThreadPoolExecutor(max_workers=4)
         
         # Normalize weights
         if retriever_weights is None:
@@ -120,16 +125,20 @@ class QueryFusionRetriever(BaseRetriever):
         """
         k = top_k if top_k is not None else self.default_top_k
         
-        # 1. Retrieve from all retrievers
-        all_results = []
-        for retriever in self.retrievers:
+        # 1. Retrieve from all retrievers concurrently
+        def safe_retrieve(retriever: BaseRetriever) -> list[BaseUnit]:
             try:
-                units = retriever.retrieve(query, top_k=k * 2, filters=filters)
-                all_results.append(units)
+                return retriever.retrieve(query, top_k=k * 2, filters=filters)
             except Exception as e:
-                # Log warning but continue with other retrievers
                 print(f"Warning: Retriever failed with error: {e}")
-                all_results.append([])
+                return []
+        
+        # Use ThreadPoolExecutor for concurrent execution
+        all_results = []
+        futures = [self._executor.submit(safe_retrieve, r) for r in self.retrievers]
+        
+        for future in as_completed(futures):
+            all_results.append(future.result())
         
         # 2. Fuse results based on mode
         if self.mode == FusionMode.RECIPROCAL_RANK:

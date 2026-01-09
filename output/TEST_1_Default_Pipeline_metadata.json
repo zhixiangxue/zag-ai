@@ -1,0 +1,35 @@
+{
+  "source": "/Users/zhixiang.xue/zeitro/zag-ai/tmp/Complex Table Test.pdf",
+  "file_type": "pdf",
+  "file_name": "Complex Table Test.pdf",
+  "file_size": 133450,
+  "content_length": 3475,
+  "reader_name": "DoclingReader",
+  "custom": {
+    "text_items_count": 18,
+    "table_items_count": 7,
+    "picture_items_count": 0,
+    "doc_name": "Complex Table Test"
+  },
+  "page_count": 3,
+  "pages_summary": [
+    {
+      "page_number": 1,
+      "text_count": 7,
+      "table_count": 3,
+      "picture_count": 0
+    },
+    {
+      "page_number": 2,
+      "text_count": 7,
+      "table_count": 3,
+      "picture_count": 0
+    },
+    {
+      "page_number": 3,
+      "text_count": 4,
+      "table_count": 1,
+      "picture_count": 0
+    }
+  ]
+}

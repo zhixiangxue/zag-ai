@@ -10,7 +10,7 @@ Architecture:
 from .base import BaseRetriever
 
 # Basic layer retrievers
-from .basic import VectorRetriever
+from .basic import VectorRetriever, FullTextRetriever
 
 # Composite layer retrievers
 from .composite import QueryFusionRetriever, FusionMode
@@ -20,6 +20,7 @@ __all__ = [
     "BaseRetriever",
     # Basic layer
     "VectorRetriever",
+    "FullTextRetriever",
     # Composite layer
     "QueryFusionRetriever",
     "FusionMode",
