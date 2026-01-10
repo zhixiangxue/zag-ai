@@ -14,9 +14,6 @@ import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from zag.extractors import TableExtractor
 from zag.parsers import TableParser
 from zag.schemas.unit import TextUnit, TableUnit

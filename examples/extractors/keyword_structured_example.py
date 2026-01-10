@@ -10,6 +10,7 @@ Before running:
 
 import os
 import uuid
+import asyncio
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from zag.schemas.unit import TextUnit, TableUnit
@@ -23,7 +24,7 @@ API_KEY = os.getenv("BAILIAN_API_KEY")
 LLM_MODEL = "qwen-plus"  # Bailian model
 
 
-def test_keyword_extractor():
+async def test_keyword_extractor():
     """Test KeywordExtractor"""
     print("\n" + "=" * 60)
     print("Test 1: Keyword Extractor")
@@ -49,7 +50,11 @@ def test_keyword_extractor():
     ]
     
     print(f"Processing {len(units)} units...")
-    units = extractor(units)
+    results = await extractor.aextract(units)
+    
+    # Update units with extracted metadata
+    for unit, metadata in zip(units, results):
+        unit.metadata.custom.update(metadata)
     
     print("\nResults:")
     for i, unit in enumerate(units, 1):
@@ -58,7 +63,7 @@ def test_keyword_extractor():
         print(f"  Keywords: {unit.metadata.custom.get('excerpt_keywords', [])}")
 
 
-def test_structured_extractor():
+async def test_structured_extractor():
     """Test StructuredExtractor"""
     print("\n" + "=" * 60)
     print("Test 2: Structured Extractor")
@@ -91,7 +96,11 @@ def test_structured_extractor():
     ]
     
     print(f"Processing {len(units)} units...")
-    units = extractor(units)
+    results = await extractor.aextract(units)
+    
+    # Update units with extracted metadata
+    for unit, metadata in zip(units, results):
+        unit.metadata.custom.update(metadata)
     
     print("\nResults:")
     for i, unit in enumerate(units, 1):
@@ -104,7 +113,7 @@ def test_structured_extractor():
         print(f"    - Min Down Payment: {unit.metadata.custom.get('min_down_payment', 'N/A')}%")
 
 
-def test_table_extractor():
+async def test_table_extractor():
     """Test TableExtractor"""
     print("\n" + "=" * 60)
     print("Test 3: Table Extractor")
@@ -132,7 +141,13 @@ def test_table_extractor():
     ]
     
     print(f"Processing {len(units)} units...")
-    units = extractor(units)
+    results = await extractor.aextract(units)
+    
+    # Update units with extracted metadata
+    for unit, metadata in zip(units, results):
+        unit.metadata.custom.update(metadata)
+        if metadata.get("embedding_content"):
+            unit.embedding_content = metadata["embedding_content"]
     
     print("\nResults:")
     for i, unit in enumerate(units, 1):
@@ -141,7 +156,7 @@ def test_table_extractor():
         print(f"  Generated Summary: {unit.metadata.custom.get('table_summary', 'N/A')}")
 
 
-def test_chaining_extractors():
+async def test_chaining_extractors():
     """Test chaining multiple extractors"""
     print("\n" + "=" * 60)
     print("Test 4: Chaining Extractors")
@@ -176,8 +191,13 @@ def test_chaining_extractors():
     print(f"Processing with chained extractors...")
     
     # Chain extractors
-    units = keyword_extractor(units)
-    units = structured_extractor(units)
+    results1 = await keyword_extractor.aextract(units)
+    for unit, metadata in zip(units, results1):
+        unit.metadata.custom.update(metadata)
+    
+    results2 = await structured_extractor.aextract(units)
+    for unit, metadata in zip(units, results2):
+        unit.metadata.custom.update(metadata)
     
     print("\nResults:")
     for i, unit in enumerate(units, 1):
@@ -188,7 +208,7 @@ def test_chaining_extractors():
         print(f"  Category: {unit.metadata.custom.get('category', 'N/A')}")
 
 
-def main():
+async def main():
     """Run all tests"""
     print("\n" + "=" * 60)
     print("Extractors Tests with Bailian")
@@ -196,10 +216,21 @@ def main():
     
     try:
         # Run all test functions
-        test_keyword_extractor()
-        test_structured_extractor()
-        test_table_extractor()
-        test_chaining_extractors()
+        await test_keyword_extractor()
+        
+        # StructuredExtractor requires 'instructor' library
+        try:
+            await test_structured_extractor()
+        except ImportError as e:
+            print(f"\n⚠️  Skipping StructuredExtractor test: {e}")
+        
+        await test_table_extractor()
+        
+        # Chaining test also uses StructuredExtractor
+        try:
+            await test_chaining_extractors()
+        except ImportError as e:
+            print(f"\n⚠️  Skipping chaining test: {e}")
         
         print("\n" + "=" * 60)
         print("✅ All tests completed successfully!")
@@ -214,4 +245,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

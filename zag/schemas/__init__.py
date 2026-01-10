@@ -2,17 +2,18 @@
 Schemas module - Core data structures
 """
 
-from zag.schemas.base import (
+from .base import (
     BaseUnit,
     UnitType,
     RelationType,
+    RetrievalSource,
     UnitMetadata,
     DocumentMetadata,
     BaseDocument,
     UnitRegistry,
     UnitCollection,
 )
-from zag.schemas.unit import TextUnit, TableUnit, ImageUnit
+from .unit import TextUnit, TableUnit, ImageUnit
 
 __all__ = [
     # Base classes
@@ -21,6 +22,7 @@ __all__ = [
     # Enums
     "UnitType",
     "RelationType",
+    "RetrievalSource",
     # Metadata
     "UnitMetadata",
     "DocumentMetadata",

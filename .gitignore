@@ -210,3 +210,4 @@ tmp/
 playground/
 .qoder/
 .DS*
+output/

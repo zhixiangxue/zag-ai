@@ -40,6 +40,13 @@ class UnitType(str, Enum):
     BASE = "base"  # Base/unknown type
 
 
+class RetrievalSource(str, Enum):
+    """Retrieval source types - indicates which storage system the unit came from"""
+    
+    VECTOR = "vector"        # From vector database (e.g., ChromaDB)
+    FULLTEXT = "fulltext"    # From fulltext search engine (e.g., Meilisearch)
+
+
 class DocumentMetadata(BaseModel):
     """
     Structured metadata for documents
@@ -154,8 +161,9 @@ class BaseUnit(BaseModel):
     # Embedding vector (optional, for caching)
     embedding: Optional[list[float]] = None
     
-    # Retrieval score (set by retrievers)
+    # Retrieval metadata (set by retrievers)
     score: Optional[float] = None
+    source: Optional['RetrievalSource'] = None
     
     # Chain relationships (managed by Splitter)
     prev_unit_id: Optional[str] = None

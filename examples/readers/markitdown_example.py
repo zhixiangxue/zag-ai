@@ -13,7 +13,14 @@ def test_read_local_pdf():
     print("="*60)
     
     reader = MarkItDownReader()
-    local_file = r"c:\Users\qu179\PycharmProjects\zag-ai\tmp\Thunderbird Product Overview 2025 - No Doc.pdf"
+    # Use test file from files directory
+    import os
+    local_file = os.path.join(
+        os.path.dirname(__file__),
+        '..',
+        'files',
+        'thunderbird_overview.pdf'
+    )
     
     print(f"\nReading: {local_file}")
     doc = reader.read(local_file)

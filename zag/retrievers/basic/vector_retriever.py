@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from ..base import BaseRetriever
 from ...schemas.base import BaseUnit
+from ...schemas import RetrievalSource
 from ...storages.vector.base import BaseVectorStore
 
 
@@ -85,6 +86,10 @@ class VectorRetriever(BaseRetriever):
             filter=filters,
         )
         
+        # Set retrieval source
+        for unit in units:
+            unit.source = RetrievalSource.VECTOR
+        
         return units
     
     async def aretrieve(
@@ -112,5 +117,9 @@ class VectorRetriever(BaseRetriever):
             top_k=k,
             filter=filters,
         )
+        
+        # Set retrieval source
+        for unit in units:
+            unit.source = RetrievalSource.VECTOR
         
         return units

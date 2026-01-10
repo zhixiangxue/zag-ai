@@ -15,9 +15,6 @@ Features:
 import sys
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from zag.splitters import MarkdownHeaderSplitter, RecursiveMergingSplitter
 from zag.schemas.markdown import Markdown
 from zag.schemas.base import DocumentMetadata
@@ -106,12 +103,12 @@ def verify_chain_relationships(units):
 
 def main():
     print("=" * 70)
-    print("RecursiveMergingSplitter Test - Sample Guideline")
+    print("RecursiveMergingSplitter Test - Mortgage Products")
     print("=" * 70)
     print()
     
-    # 1. Load Markdown document from file
-    sample_file = Path(__file__).parent.parent / "tmp" / "sample-guideline.md"
+    # 1. Load Markdown document from files directory
+    sample_file = Path(__file__).parent.parent / "files" / "mortgage_products.md"
     
     if not sample_file.exists():
         print(f"❌ File not found: {sample_file}")
@@ -213,7 +210,7 @@ def main():
     
     print(f"\nImprovements:")
     print(f"  - Units reduced: {len(base_units) - len(merged_units)} ({(1 - len(merged_units)/len(base_units))*100:.1f}%)")
-    print(f"  - Avg tokens increased: {(sum(merged_tokens) // len(merged_tokens)) - (sum(base_tokens) // len(base_tokens))} per unit")
+    print(f"  - Avg tokens increased: {(sum(merged_tokens) // len(merged_units)) - (sum(base_tokens) // len(base_units))} per unit")
     
     print("\n" + "=" * 70)
     print("✅ Test Complete!")

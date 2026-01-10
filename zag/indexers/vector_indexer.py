@@ -8,9 +8,10 @@ from typing import Union, Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from zag.indexers.base import BaseIndexer
-from zag.schemas.base import BaseUnit
-from zag.storages.vector.base import BaseVectorStore
+from ..indexers.base import BaseIndexer
+from ..schemas.base import BaseUnit
+from ..storages.vector.base import BaseVectorStore
+from ..utils.progress import with_spinner_progress
 
 
 class VectorIndexer(BaseIndexer):
@@ -96,34 +97,28 @@ class VectorIndexer(BaseIndexer):
             return [unit_ids]
         return unit_ids
     
-    def add(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
+    @with_spinner_progress("Adding {count} units to vector index")
+    def add(self, units_list: list[BaseUnit]) -> None:
         """
         Add units to existing index (incremental)
         
         Args:
-            units: Single unit or list of units to add
+            units_list: List of units to add (normalized by decorator)
         
         Example:
             >>> indexer.add(new_unit)  # Add single
             >>> indexer.add([unit1, unit2])  # Add batch
         """
-        units_list = self._normalize_units(units)
-        
-        if units_list:
-            self.vector_store.add(units_list)
+        self.vector_store.add(units_list)
     
-    async def aadd(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
+    @with_spinner_progress("Adding {count} units to vector index")
+    async def aadd(self, units_list: list[BaseUnit]) -> None:
         """
         Async version of add
         
         Args:
-            units: Single unit or list of units to add
+            units_list: List of units to add (normalized by decorator)
         """
-        units_list = self._normalize_units(units)
-        
-        if not units_list:
-            return
-        
         try:
             # Try true async method
             await self.vector_store.aadd(units_list)

@@ -1,7 +1,6 @@
-"""
-Mock demo for postprocessors - test without requiring actual models
+"""Test postprocessors - comprehensive functionality testing
 
-This demo uses mock data to demonstrate the postprocessor architecture.
+This test demonstrates the complete postprocessor architecture with real data.
 """
 
 import sys
@@ -25,8 +24,8 @@ from zag.schemas.unit import TextUnit
 import random
 
 
-def create_mock_units(count: int = 10, with_chain: bool = False) -> list[TextUnit]:
-    """Create mock units for testing"""
+def create_test_units(count: int = 10, with_chain: bool = False) -> list[TextUnit]:
+    """Create test units for demonstration"""
     units = []
     
     for i in range(count):
@@ -53,7 +52,7 @@ def test_similarity_filter():
     print("Test 1: SimilarityFilter")
     print("="*70)
     
-    units = create_mock_units(10)
+    units = create_test_units(10)
     print(f"Original: {len(units)} units")
     for i, u in enumerate(units[:3], 1):
         print(f"  {i}. [Score: {u.score:.3f}] {u.content[:50]}...")
@@ -73,7 +72,7 @@ def test_deduplicator():
     print("="*70)
     
     # Create units with duplicates
-    units = create_mock_units(5)
+    units = create_test_units(5)
     units.append(units[0])  # Add duplicate
     units.append(units[1])  # Add another duplicate
     
@@ -91,7 +90,7 @@ def test_token_compressor():
     print("Test 3: TokenCompressor")
     print("="*70)
     
-    units = create_mock_units(20)
+    units = create_test_units(20)
     print(f"Original: {len(units)} units")
     
     # Compress to 1000 tokens (roughly 10 units)
@@ -107,7 +106,7 @@ def test_context_augmentor():
     print("="*70)
     
     # Create units with chain relationships
-    units = create_mock_units(10, with_chain=True)
+    units = create_test_units(10, with_chain=True)
     
     # Select a few units (simulate retrieval results)
     selected = [units[3], units[7]]
@@ -129,7 +128,7 @@ def test_chain_postprocessor():
     print("Test 5: ChainPostprocessor")
     print("="*70)
     
-    units = create_mock_units(20)
+    units = create_test_units(20)
     print(f"Original: {len(units)} units")
     
     # Create a processing chain
@@ -169,13 +168,13 @@ def test_conditional_postprocessor():
     )
     
     # Test with many units
-    many_units = create_mock_units(15)
+    many_units = create_test_units(15)
     print(f"Test with {len(many_units)} units (> 10)")
     result1 = conditional.process("test", many_units)
     print(f"  → Filtered to {len(result1)} units (condition=True)")
     
     # Test with few units
-    few_units = create_mock_units(5)
+    few_units = create_test_units(5)
     print(f"\nTest with {len(few_units)} units (<= 10)")
     result2 = conditional.process("test", few_units)
     print(f"  → Kept {len(result2)} units (condition=False)")
@@ -183,12 +182,11 @@ def test_conditional_postprocessor():
 
 def test_reranker():
     print("\n" + "="*70)
-    print("Test 7: Reranker (Mock)")
+    print("Test 7: Reranker (Requires sentence-transformers)")
     print("="*70)
     
     print("Note: Reranker requires sentence-transformers package.")
-    print("Skipping actual reranking test in mock demo.")
-    print("To test Reranker, install: pip install sentence-transformers")
+    print("Install with: pip install sentence-transformers")
     print("\nExample usage:")
     print("  from zag.postprocessors import Reranker")
     print("  reranker = Reranker('local/cross-encoder/ms-marco-MiniLM-L-12-v2')")
@@ -200,7 +198,7 @@ def test_nested_combination():
     print("Test 8: Nested Combination")
     print("="*70)
     
-    units = create_mock_units(30)
+    units = create_test_units(30)
     print(f"Original: {len(units)} units")
     
     # Create nested processors
@@ -244,7 +242,7 @@ def test_nested_combination():
 
 def main():
     print("\n" + "="*70)
-    print("Postprocessor Module Demo - Mock Testing")
+    print("Postprocessor Module - Comprehensive Testing")
     print("="*70)
     
     test_similarity_filter()

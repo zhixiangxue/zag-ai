@@ -11,6 +11,7 @@ from meilisearch.errors import MeilisearchApiError
 
 from ..base import BaseRetriever
 from ...schemas.base import BaseUnit, UnitMetadata
+from ...schemas import RetrievalSource
 
 
 class FullTextRetriever(BaseRetriever):
@@ -231,6 +232,7 @@ class FullTextRetriever(BaseRetriever):
         for hit in hits:
             score = hit.get("_rankingScore")
             unit = self._document_to_unit(hit, score)
+            unit.source = RetrievalSource.FULLTEXT  # Set retrieval source
             units.append(unit)
         
         return units

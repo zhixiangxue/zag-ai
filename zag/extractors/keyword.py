@@ -82,9 +82,3 @@ class KeywordExtractor(BaseExtractor):
             keywords = [k.strip() for k in response.content.strip().split(',')]
         
         return {"excerpt_keywords": keywords[:self.num_keywords]}
-    
-    async def aextract(self, units: Sequence) -> List[Dict]:
-        """Batch extract metadata from units."""
-        import asyncio
-        tasks = [self._extract_from_unit(unit) for unit in units]
-        return await asyncio.gather(*tasks)

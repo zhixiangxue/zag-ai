@@ -1,9 +1,11 @@
-"""
+"""   
 Base splitter class for all splitters
 """
 
 from abc import ABC, abstractmethod
 import uuid
+
+from rich.progress import Progress, TextColumn, BarColumn, MofNCompleteColumn, TimeElapsedColumn
 
 from ..schemas.base import BaseUnit, UnitCollection, BaseDocument
 
@@ -38,21 +40,35 @@ class BaseSplitter(ABC):
         Returns:
             UnitCollection with units having prev/next relationships
         """
-        # Perform actual splitting
-        units = self._do_split(document)
-        
-        # Establish chain relationships
-        for i, unit in enumerate(units):
-            # Set source document
-            unit.source_doc_id = document.doc_id
+        with Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+        ) as progress:
+            task = progress.add_task(
+                "Processing...",
+                total=100
+            )
             
-            # Set prev/next relationships
-            if i > 0:
-                unit.prev_unit_id = units[i - 1].unit_id
-            if i < len(units) - 1:
-                unit.next_unit_id = units[i + 1].unit_id
-        
-        return UnitCollection(units)
+            # Perform actual splitting
+            units = self._do_split(document)
+            progress.update(task, advance=50)
+            
+            # Establish chain relationships
+            for i, unit in enumerate(units):
+                # Set source document
+                unit.source_doc_id = document.doc_id
+                
+                # Set prev/next relationships
+                if i > 0:
+                    unit.prev_unit_id = units[i - 1].unit_id
+                if i < len(units) - 1:
+                    unit.next_unit_id = units[i + 1].unit_id
+            
+            progress.update(task, advance=50)
+            
+            return UnitCollection(units)
     
     @staticmethod
     def generate_unit_id() -> str:

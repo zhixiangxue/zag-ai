@@ -67,10 +67,10 @@ def test_sync_operations():
     ]
     print(f"   ✓ Created {len(units)} units")
     
-    # Step 3: Build index (full rebuild)
-    print("\n3. Building index (full rebuild)...")
-    indexer.build(units)
-    print(f"   ✓ Index built with {indexer.count()} units")
+    # Step 3: Add initial units
+    print("\n3. Adding initial units...")
+    indexer.add(units)
+    print(f"   ✓ Added {indexer.count()} units to index")
     
     # Step 4: Add single unit (incremental)
     print("\n4. Adding single unit (incremental)...")
@@ -146,20 +146,21 @@ def test_sync_operations():
     indexer.delete(["unit_4", "unit_5"])  # Batch IDs
     print(f"   ✓ Deleted batch, remaining: {indexer.count()}")
     
-    # Step 11: Rebuild with new data
-    print("\n11. Rebuilding index...")
+    # Step 11: Clear and add new data
+    print("\n11. Clearing and adding new data...")
+    indexer.clear()  # Clear first
     new_units = [
         TextUnit(
             unit_id="new_1",
-            content="After rebuild, only these units remain.",
+            content="After clear and add, only these units remain.",
         ),
         TextUnit(
             unit_id="new_2",
             content="Previous index content is completely replaced.",
         ),
     ]
-    indexer.build(new_units)  # Full rebuild
-    print(f"   ✓ Index rebuilt, total: {indexer.count()}")
+    indexer.add(new_units)  # Add new units
+    print(f"   ✓ Index cleared and rebuilt, total: {indexer.count()}")
     
     # Step 12: Clear all
     print("\n12. Clearing index...")
@@ -193,20 +194,20 @@ async def test_async_operations():
     indexer = VectorIndexer(vector_store=vector_store)
     print(f"   ✓ Created indexer")
     
-    # Async build
-    print("\n2. Async build...")
+    # Async add
+    print("\n2. Async add initial units...")
     units = [
         TextUnit(unit_id=f"async_{i}", content=f"Async unit {i}")
         for i in range(5)
     ]
-    await indexer.abuild(units)
-    print(f"   ✓ Async build completed, total: {indexer.count()}")
+    await indexer.aadd(units)
+    print(f"   ✓ Async add completed, total: {indexer.count()}")
     
-    # Async add
-    print("\n3. Async add...")
+    # Async add single unit
+    print("\n3. Async add single unit...")
     new_unit = TextUnit(unit_id="async_new", content="Async added unit")
     await indexer.aadd(new_unit)
-    print(f"   ✓ Async add completed, total: {indexer.count()}")
+    print(f"   ✓ Async add single unit completed, total: {indexer.count()}")
     
     # Async update
     print("\n4. Async update...")
@@ -243,18 +244,18 @@ def test_api_design_summary():
     
     print("\n✅ Key Features Validated:")
     print("   1. Indexer vs VectorStore:")
-    print("      - Indexer: High-level (build, add, update, upsert)")
+    print("      - Indexer: High-level (add, update, upsert, delete)")
     print("      - VectorStore: Low-level (storage + embedding)")
     print()
     print("   2. Operation semantics:")
-    print("      - build(): Full rebuild (destructive)")
     print("      - add(): Incremental add (insert only)")
     print("      - update(): Update existing (expects unit exists)")
     print("      - upsert(): Update or insert (most flexible)")
+    print("      - clear(): Remove all units (destructive)")
     print()
     print("   3. Sync + Async support:")
-    print("      - Sync: build(), add(), update(), upsert(), delete()")
-    print("      - Async: abuild(), aadd(), aupdate(), aupsert(), adelete()")
+    print("      - Sync: add(), update(), upsert(), delete(), clear()")
+    print("      - Async: aadd(), aupdate(), aupsert(), adelete(), aclear()")
     print("      - Auto fallback: try async, fallback to sync")
     print()
     print("   4. Single/Batch operations:")

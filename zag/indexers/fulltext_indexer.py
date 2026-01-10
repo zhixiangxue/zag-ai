@@ -11,8 +11,9 @@ from concurrent.futures import ThreadPoolExecutor
 import meilisearch
 from meilisearch.errors import MeilisearchApiError
 
-from zag.indexers.base import BaseIndexer
-from zag.schemas.base import BaseUnit
+from ..indexers.base import BaseIndexer
+from ..schemas.base import BaseUnit
+from ..utils.progress import with_spinner_progress
 
 
 class FullTextIndexer(BaseIndexer):
@@ -217,12 +218,13 @@ class FullTextIndexer(BaseIndexer):
             task = self.index.update_settings(settings)
             self.client.wait_for_task(task.task_uid)
     
-    def add(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
+    @with_spinner_progress("Adding {count} units to fulltext index")
+    def add(self, units_list: list[BaseUnit]) -> None:
         """
         Add units to index
         
         Args:
-            units: Single unit or list of units to add
+            units_list: List of units to add (normalized by decorator)
         
         Note:
             In Meilisearch, add_documents has upsert semantics by default.
@@ -232,24 +234,26 @@ class FullTextIndexer(BaseIndexer):
             >>> indexer.add(new_unit)
             >>> indexer.add([unit1, unit2])
         """
-        units_list = self._normalize_units(units)
-        
-        if not units_list:
-            return
-        
         documents = [self._unit_to_document(u) for u in units_list]
         task = self.index.add_documents(documents)
         self.client.wait_for_task(task.task_uid)
     
-    async def aadd(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
+    @with_spinner_progress("Adding {count} units to fulltext index")
+    async def aadd(self, units_list: list[BaseUnit]) -> None:
         """
         Async version of add
         
         Args:
-            units: Single unit or list of units to add
+            units_list: List of units to add (normalized by decorator)
         """
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(self._executor, self.add, units)
+        # Build documents list
+        documents = [self._unit_to_document(u) for u in units_list]
+        # Execute add_documents in thread pool
+        def _sync_add():
+            task = self.index.add_documents(documents)
+            self.client.wait_for_task(task.task_uid)
+        await loop.run_in_executor(self._executor, _sync_add)
     
     def update(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
         """

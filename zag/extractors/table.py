@@ -4,6 +4,14 @@ Table extractor for generating natural language descriptions of tables
 
 from typing import List, Dict, Sequence
 import re
+import json
+import asyncio
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from .base import BaseExtractor
 from ..schemas.unit import TableUnit, TextUnit
@@ -59,24 +67,35 @@ class TableExtractor(BaseExtractor):
         Extract table information from a single unit.
         
         Returns:
-            Dict with extracted metadata (does not modify unit)
+            Dict with embedding_content:
+            - TableUnit with tables: generated summary
+            - TableUnit without tables: empty string
+            - TextUnit with tables: content with tables replaced by summaries
+            - TextUnit without tables: original content
         """
         # Case 1: TableUnit - generate summary
         if isinstance(unit, TableUnit):
             json_data = unit.json_data
             if not json_data:
-                return {}
+                # No table data, return empty
+                return {"embedding_content": ""}
             
             summary = await self._generate_table_summary(json_data)
-            return {"embedding_content": summary}
+            # If summary is None (failed), return empty string instead of polluting data
+            return {"embedding_content": summary if summary else ""}
         
-        # Case 2: TextUnit - replace tables with summaries
+        # Case 2: TextUnit - replace tables with summaries or return original
         if isinstance(unit, TextUnit):
             if self._has_markdown_tables(unit.content):
+                # Has tables, replace with summaries
                 processed = await self._process_text_with_tables(unit)
                 return {"embedding_content": processed}
+            else:
+                # No tables, return original content
+                return {"embedding_content": unit.content}
         
-        return {}
+        # Other unit types, return empty
+        return {"embedding_content": ""}
     
     async def _process_text_with_tables(self, text_unit: TextUnit) -> str:
         """
@@ -112,12 +131,15 @@ class TableExtractor(BaseExtractor):
         if not tasks:
             return content
         
-        # Generate summaries concurrently
-        summaries = await asyncio.gather(*tasks)
+        # Generate summaries concurrently (with error handling)
+        summaries = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Replace tables with summaries
+        # Replace tables with summaries (use original table if summary failed)
         modified_content = content
         for table_text, summary in zip(valid_matches, summaries):
+            # If summary generation failed (Exception or None), keep original table
+            if isinstance(summary, Exception) or summary is None:
+                continue
             modified_content = modified_content.replace(table_text, summary)
         
         return modified_content
@@ -127,12 +149,26 @@ class TableExtractor(BaseExtractor):
         from ..parsers import TableParser
         return bool(TableParser.TABLE_PATTERN.search(content))
     
-    async def _generate_table_summary(self, json_data: dict) -> str:
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type(Exception),
+    )
+    async def _generate_table_summary(self, json_data: dict) -> str | None:
         """
         Generate natural language description from table data.
         
         Converts table to complete natural language without losing information.
         LLM will automatically detect and use the source language.
+        
+        This method will retry up to 3 times with exponential backoff.
+        If all retries fail, returns None to indicate failure.
+        
+        Args:
+            json_data: Table data in JSON format
+        
+        Returns:
+            Natural language description, or None if all retries fail
         """
         prompt = f"""Convert the following table into natural language description. Use the SAME LANGUAGE as the table content.
 
@@ -150,12 +186,11 @@ Requirements:
 
 Description:"""
         
-        response = await self._conv.asend(prompt)
-        # Add newlines to clearly separate from surrounding content
-        return "\n" + response.content.strip() + "\n\n"
-    
-    async def aextract(self, units: Sequence) -> List[Dict]:
-        """Batch extract metadata from units."""
-        import asyncio
-        tasks = [self._extract_from_unit(unit) for unit in units]
-        return await asyncio.gather(*tasks)
+        try:
+            response = await self._conv.asend(prompt)
+            # Add newlines to clearly separate from surrounding content
+            return "\n" + response.content.strip() + "\n\n"
+        except Exception:
+            # Final fallback: return None to indicate failure
+            # Caller will handle this appropriately (e.g., skip this table, use original markdown)
+            return None

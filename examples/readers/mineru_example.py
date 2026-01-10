@@ -292,12 +292,18 @@ def check_gpu_available():
 
 
 def main():
-    # PDF file path
-    pdf_path = "../tmp/Thunderbird Product Overview 2025 - No Doc.pdf"
+    # PDF file path - use test file from files directory
+    import os
+    pdf_path = os.path.join(
+        os.path.dirname(__file__),
+        '..',
+        'files',
+        'thunderbird_overview.pdf'
+    )
     
-    # Create output directory
-    output_dir = Path("output_mineru")
-    output_dir.mkdir(exist_ok=True)
+    # Create output directory (under output/ to be ignored by git)
+    output_dir = Path("output") / "mineru"
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # Check if file exists
     if not Path(pdf_path).exists():

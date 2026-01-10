@@ -1,5 +1,5 @@
 """
-Structured extractor using instructor for type-safe extraction
+Structured extractor using chak for type-safe extraction
 """
 
 from typing import List, Dict, Sequence, Type
@@ -11,20 +11,20 @@ from .base import BaseExtractor
 
 class StructuredExtractor(BaseExtractor):
     """
-    Structured extractor that uses instructor to extract structured information from units.
+    Structured extractor that uses chak to extract structured information from units.
     
     Key design:
-    - Uses instructor (professional structured extraction library)
+    - Uses chak (simple yet powerful LLM client with structured output)
     - Schema defined by developer (Pydantic BaseModel)
-    - Automatic retry and validation
+    - Automatic validation and type conversion
     - No wrapper layer - directly expands schema fields
     
     Args:
         llm_uri: LLM URI in format: provider/model
-                 e.g., "openai/gpt-4o-mini", "anthropic/claude-3-5-sonnet"
+                 e.g., "openai/gpt-4o-mini", "bailian/qwen-plus"
         api_key: API key for the LLM provider
         schema: Pydantic BaseModel class (developer-defined)
-        max_retries: Maximum retries on validation failure, default 3
+        base_url: Optional custom base URL (for OpenAI-compatible providers)
     
     Example:
         >>> # 1. Define data structure (developer-defined)
@@ -35,17 +35,17 @@ class StructuredExtractor(BaseExtractor):
         >>> 
         >>> # 2. Create extractor
         >>> extractor = StructuredExtractor(
-        ...     llm_uri="openai/gpt-4o-mini",
+        ...     llm_uri="bailian/qwen-plus",
         ...     api_key="sk-xxx",
         ...     schema=ProductInfo
         ... )
         >>> 
         >>> # 3. Use
-        >>> units = extractor(units)
+        >>> results = await extractor.aextract(units)
         >>> 
         >>> # 4. Access results (directly expanded, no wrapper)
-        >>> print(units[0].metadata["product_name"])
-        >>> print(units[0].metadata["apr_min"])
+        >>> print(units[0].metadata.custom["product_name"])
+        >>> print(units[0].metadata.custom["apr_min"])
         >>> # "30-Year Fixed Rate Mortgage"
         >>> # 6.5
     """
@@ -55,74 +55,54 @@ class StructuredExtractor(BaseExtractor):
         llm_uri: str,
         api_key: str,
         schema: Type[BaseModel],
-        max_retries: int = 3,
+        base_url: str = None,
     ):
         self.llm_uri = llm_uri
         self.api_key = api_key
         self.schema = schema
-        self.max_retries = max_retries
+        self.base_url = base_url
         
-        # Use instructor (supports provider/model URI)
-        import instructor
-        from openai import OpenAI
-        
-        # Try instructor's built-in provider support first
+        # Import chak
         try:
-            self._client = instructor.from_provider(llm_uri, api_key=api_key)
-            self._model = None  # Provider URI includes model
-        except Exception as e:
-            # Fallback: try OpenAI compatibility mode
-            # This handles providers like bailian that use OpenAI-compatible APIs
-            if "/" not in llm_uri:
-                raise ValueError(f"Invalid LLM URI format: {llm_uri}. Expected 'provider/model'")
-            
-            provider, model = llm_uri.split("/", 1)
-            provider = provider.lower()
-            
-            # Map known OpenAI-compatible providers to their base URLs
-            openai_compatible_providers = {
-                "bailian": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                # Add more OpenAI-compatible providers here
-            }
-            
-            if provider in openai_compatible_providers:
-                base_client = OpenAI(
-                    api_key=api_key,
-                    base_url=openai_compatible_providers[provider]
-                )
-                self._client = instructor.from_openai(base_client)
-                self._model = model
-            else:
-                # Re-raise original error if not an OpenAI-compatible provider
-                raise e
+            import chak
+        except ImportError:
+            raise ImportError(
+                "chak is required for StructuredExtractor. "
+                "Install it with: pip install chakpy"
+            )
+        
+        # Create chak conversation
+        # chak handles provider compatibility automatically
+        self._conv = chak.Conversation(
+            llm_uri,
+            api_key=api_key,
+            base_url=base_url
+        )
     
     async def _extract_from_unit(self, unit) -> Dict:
         """Extract structured information from a single unit."""
         content = unit.content if hasattr(unit, 'content') else str(unit)
         
-        prompt = f"从以下文本中提取结构化信息：\n\n{content}"
+        # Build prompt with clear instructions
+        # Use English for better LLM understanding
+        prompt = f"""Extract structured information from the following text and return it in the exact format specified.
+
+IMPORTANT:
+- Extract information accurately based on the text content
+- Maintain the same language as the input text for extracted values
+- If information is not found, use appropriate default values or null
+- Do not make up information that is not present in the text
+
+Text to analyze:
+{content}
+
+Please extract the requested structured information from above."""
         
         try:
-            # Prepare create parameters
-            create_params = {
-                "response_model": self.schema,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "max_retries": self.max_retries,
-            }
+            # Use chak's structured output feature
+            result = await self._conv.asend(prompt, returns=self.schema)
             
-            # Add model if using bailian
-            if self._model:
-                create_params["model"] = self._model
-            
-            # Use instructor to extract structured data (sync call in async context)
-            import asyncio
-            result = await asyncio.to_thread(
-                self._client.chat.completions.create,
-                **create_params
-            )
-            
+            # result is already a Pydantic model instance
             # Directly expand schema fields, no wrapper layer
             return result.model_dump()
         except Exception as e:
@@ -130,9 +110,3 @@ class StructuredExtractor(BaseExtractor):
             import traceback
             traceback.print_exc()
             return {}
-    
-    async def aextract(self, units: Sequence) -> List[Dict]:
-        """Batch extract metadata from units."""
-        import asyncio
-        tasks = [self._extract_from_unit(unit) for unit in units]
-        return await asyncio.gather(*tasks)

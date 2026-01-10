@@ -321,13 +321,18 @@ def compare_results(results: dict):
 
 
 def main():
-    # PDF file path
-    # pdf_path = "/Users/zhixiang.xue/zeitro/zag-ai/tmp/Thunderbird Product Overview 2025 - No Doc.pdf"
-    pdf_path = "/Users/zhixiang.xue/zeitro/zag-ai/tmp/Complex Table Test.pdf"
+    # PDF file path - use test file from files directory
+    import os
+    pdf_path = os.path.join(
+        os.path.dirname(__file__),
+        '..',
+        'files',
+        'mortgage_products.pdf'
+    )
 
-    # Create output directory
-    output_dir = Path("output")
-    output_dir.mkdir(exist_ok=True)
+    # Create output directory (under output/ to be ignored by git)
+    output_dir = Path("output") / "docling"
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # Check if file exists
     if not Path(pdf_path).exists():

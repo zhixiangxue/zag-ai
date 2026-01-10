@@ -181,7 +181,8 @@ def compare_original_vs_parsed(html_path: Path, table_id: str):
 
 def main():
     """Run all table parsing tests"""
-    html_path = Path(__file__).parent / "complex_table.html"
+    # Use test file from files directory
+    html_path = Path(__file__).parent.parent / "files" / "complex_table.html"
     
     if not html_path.exists():
         print(f"[red]Error: {html_path} not found![/red]")

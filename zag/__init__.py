@@ -2,10 +2,31 @@
 Zag AI - RAG Framework
 """
 
+import logging
+from rich.console import Console
+from rich.logging import RichHandler
+
 __version__ = "0.1.0"
 
+# Configure rich logging for better UX with progress bars
+_console = Console()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    handlers=[RichHandler(
+        console=_console,
+        rich_tracebacks=True,
+        show_time=True,
+        show_path=False
+    )]
+)
+
+# Reduce verbosity for HTTP requests to avoid interfering with progress bars
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
+
 # Exceptions
-from zag.exceptions import (
+from .exceptions import (
     ZagError,
     ConfigurationError,
     ValidationError,
@@ -14,7 +35,7 @@ from zag.exceptions import (
 )
 
 # Core schemas
-from zag.schemas.base import (
+from .schemas.base import (
     BaseUnit, 
     UnitRegistry, 
     RelationType,
@@ -25,25 +46,25 @@ from zag.schemas.base import (
     Page,
     PageableDocument,
 )
-from zag.schemas.unit import TextUnit, TableUnit, ImageUnit
-from zag.schemas.pdf import PDF
-from zag.schemas.markdown import Markdown
+from .schemas.unit import TextUnit, TableUnit, ImageUnit
+from .schemas.pdf import PDF
+from .schemas.markdown import Markdown
 
 # Readers
-from zag.readers.base import BaseReader
+from .readers.base import BaseReader
 
 # Splitters
-from zag.splitters.base import BaseSplitter
+from .splitters.base import BaseSplitter
 
 # Extractors
-from zag.extractors.base import BaseExtractor
-from zag.extractors import TableExtractor, StructuredExtractor, KeywordExtractor
+from .extractors.base import BaseExtractor
+from .extractors import TableExtractor, StructuredExtractor, KeywordExtractor
 
 # Embedders
-from zag.embedders import Embedder
+from .embedders import Embedder
 
 # Retrievers
-from zag.retrievers import (
+from .retrievers import (
     BaseRetriever,
     VectorRetriever,
     QueryFusionRetriever,

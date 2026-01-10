@@ -117,7 +117,7 @@ class BaseVectorStore(ABC):
         Raises:
             ValueError: If image_embedder is required but not provided
         """
-        from zag.schemas.base import UnitType
+        from ...schemas.base import UnitType
         
         if self._is_multimodal:
             # Multimodal embedder handles all types
