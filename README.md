@@ -49,8 +49,12 @@ splitter = MarkdownHeaderSplitter()
 units = splitter.split(doc)
 
 # Recursive merging with token limits
-splitter = RecursiveMergingSplitter(target_tokens=512)
-units = splitter.split(doc)
+base_splitter = MarkdownHeaderSplitter()
+merger = RecursiveMergingSplitter(
+    base_splitter=base_splitter,
+    target_token_size=512
+)
+units = merger.split(doc)
 ```
 
 ### 🏷️ Metadata Extraction
@@ -87,7 +91,7 @@ vector_indexer = VectorIndexer(
 )
 vector_indexer.index(units)
 
-# Full-text indexing
+# Full-text indexing (requires Meilisearch: https://github.com/meilisearch/meilisearch)
 fulltext_indexer = FullTextIndexer(
     host="http://localhost:7700",
     api_key="master_key"
@@ -263,7 +267,7 @@ See complete examples: [examples/extractors/](examples/extractors/)
 Parsers convert extracted data into structured formats:
 
 | Parser | Input | Output | Example |
-|--------|-------|--------|---------||
+|--------|-------|--------|---------|
 | **TableParser** | Markdown tables in TextUnit | TableUnit with structured json_data | [table_basic_example.py](examples/parsers/table_basic_example.py) |
 
 **Example:**
@@ -353,7 +357,7 @@ Retrievers fetch relevant units based on queries:
 
 | Retriever | Type | Strategy | Example |
 |-----------|------|----------|---------|
-| **VectorRetriever** | Vector | Semantic similarity | [examples/retrievers/vector_retriever_example.py] |
+| **VectorRetriever** | Vector | Semantic similarity | - |
 | **FullTextRetriever** | Full-text | Keyword matching | [fulltext_example.py](examples/retrievers/fulltext_example.py) |
 | **FusionRetriever** | Hybrid | RRF, weighted sum, linear combination | [fusion_example.py](examples/retrievers/fusion_example.py) |
 
@@ -444,13 +448,17 @@ See complete example: [rag_example.py](examples/e2e/rag_example.py)
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 Zag follows a modular, pipeline-based architecture:
 
+**Indexing Pipeline:**
 ```
 Document → Reader → Splitter → Extractor → Indexer → Storage
-                                                        ↓
+```
+
+**Retrieval Pipeline:**
+```
 Query → Embedder → Retriever ← Storage → Post-Processor → Results
 ```
 
