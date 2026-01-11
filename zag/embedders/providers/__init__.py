@@ -75,6 +75,16 @@ try:
 except ImportError:
     pass  # Provider not yet implemented or dependencies missing
 
+try:
+    from . import ollama
+except ImportError:
+    pass  # Provider not yet implemented or dependencies missing
+
+try:
+    from . import openai
+except ImportError:
+    pass  # Provider not yet implemented or dependencies missing
+
 
 __all__ = [
     'BaseProvider',

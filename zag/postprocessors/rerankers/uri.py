@@ -3,7 +3,7 @@ URI parsing utilities for reranker configuration
 
 Supports two URI formats:
 1. Simple format: provider/model
-   Example: "local/cross-encoder-ms-marco"
+   Example: "sentence_transformers/cross-encoder-ms-marco"
 
 2. Full format: provider@base_url:model?params
    Example: "cohere@~:rerank-english-v2.0?top_k=10"
@@ -32,8 +32,8 @@ def parse_reranker_uri(uri: str) -> Dict[str, Any]:
         URIError: If URI format is invalid
         
     Examples:
-        >>> parse_reranker_uri("local/cross-encoder-ms-marco")
-        {'provider': 'local', 'base_url': None, 'model': 'cross-encoder-ms-marco', 'params': {}}
+        >>> parse_reranker_uri("sentence_transformers/cross-encoder-ms-marco")
+        {'provider': 'sentence_transformers', 'base_url': None, 'model': 'cross-encoder-ms-marco', 'params': {}}
         
         >>> parse_reranker_uri("cohere@~:rerank-v2.0?top_k=10")
         {'provider': 'cohere', 'base_url': None, 'model': 'rerank-v2.0', 
@@ -53,7 +53,7 @@ def parse_reranker_uri(uri: str) -> Dict[str, Any]:
         raise URIError(
             f"Invalid URI format: {uri}\n"
             f"Expected formats:\n"
-            f"  - Simple: provider/model (e.g., 'local/cross-encoder-ms-marco')\n"
+            f"  - Simple: provider/model (e.g., 'sentence_transformers/cross-encoder-ms-marco')\n"
             f"  - Full: provider@base_url:model?params (e.g., 'cohere@~:rerank-v2.0')"
         )
 

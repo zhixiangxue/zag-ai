@@ -12,68 +12,65 @@ from ...schemas.unit import TextUnit
 
 class ChromaVectorStore(BaseVectorStore):
     """
-    ChromaDB vector store implementation (Embedded Mode)
+    ChromaDB vector store with multiple deployment modes
     
-    This implementation uses ChromaDB in **embedded mode** (PersistentClient),
-    which runs ChromaDB directly in your application process without requiring
-    a separate server.
+    Supports three deployment modes:
+    1. **In-memory**: For testing and prototyping
+    2. **Local persistent**: For development and single-node deployment
+    3. **Server**: For production and multi-client access
+    
+    Usage:
+        # In-memory mode (for testing)
+        store = ChromaVectorStore.in_memory(
+            collection_name="test",
+            embedder=embedder
+        )
+        
+        # Local persistent mode (for development)
+        store = ChromaVectorStore.local(
+            path="./chroma_db",
+            collection_name="docs",
+            embedder=embedder
+        )
+        
+        # Server mode (for production)
+        store = ChromaVectorStore.server(
+            host="localhost",
+            port=8000,
+            collection_name="docs",
+            embedder=embedder
+        )
     
     **Async Support:**
     - Async methods (aadd, asearch, etc.) use thread pool executor wrapper
     - This is **not true async I/O**, just running sync code in a thread
-    - For true async support, you would need:
-      1. Run ChromaDB as a server: `chroma run --host localhost --port 8000`
-      2. Use HttpClient/AsyncHttpClient to connect to the server
-      3. See: https://cookbook.chromadb.dev/core/clients/
-    
-    **When to use embedded mode:**
-    - Local development and testing
-    - Embedded applications (ship Chroma with your product)
-    - Simplicity (no server setup required)
-    - Data privacy (all data stays local)
-    - Low latency (no network overhead)
-    
-    **When to use client-server mode (with AsyncHttpClient):**
-    - Production deployments at scale
-    - True async I/O requirements
-    - Multiple applications sharing same vector database
-    - Remote access to vector database
-    
-    Usage:
-        >>> from zag.embedders import Embedder
-        >>> embedder = Embedder.from_uri("openai://text-embedding-3-small")
-        >>> 
-        >>> # Embedded mode (current implementation)
-        >>> store = ChromaVectorStore(
-        ...     embedder=embedder,
-        ...     collection_name="my_docs",
-        ...     persist_directory="./chroma_db"  # Local storage
-        ... )
-        >>> store.add(units)  # Sync
-        >>> await store.aadd(units)  # Async (uses executor, not true async I/O)
-        >>> 
-        >>> results = store.search("query text", top_k=5)
+    - For true async support with server mode, see ChromaDB documentation
     """
     
     def __init__(
         self,
+        client: 'chromadb.ClientAPI',
         collection_name: str = "default",
-        persist_directory: Optional[str] = None,
         embedder: Optional['BaseEmbedder'] = None,
         text_embedder: Optional['BaseEmbedder'] = None,
         image_embedder: Optional['BaseEmbedder'] = None,
         **kwargs
     ):
         """
-        Initialize ChromaDB vector store
+        Private constructor - use factory methods instead
+        
+        Factory methods:
+        - ChromaVectorStore.in_memory() - for testing
+        - ChromaVectorStore.local() - for development
+        - ChromaVectorStore.server() - for production
         
         Args:
+            client: ChromaDB client instance
             collection_name: Name of the Chroma collection
-            persist_directory: Directory to persist data (None for in-memory)
             embedder: Single embedder for all content types (multimodal)
             text_embedder: Embedder specifically for text/table units
             image_embedder: Embedder specifically for image units
-            **kwargs: Additional ChromaDB client parameters
+            **kwargs: Additional parameters
         
         Note:
             See BaseVectorStore.__init__ for detailed embedder usage patterns
@@ -85,6 +82,45 @@ class ChromaVectorStore(BaseVectorStore):
             **kwargs
         )
         
+        self.client = client
+        self.collection_name = collection_name
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"}  # Use cosine similarity
+        )
+    
+    @classmethod
+    def in_memory(
+        cls,
+        collection_name: str = "default",
+        embedder: Optional['BaseEmbedder'] = None,
+        text_embedder: Optional['BaseEmbedder'] = None,
+        image_embedder: Optional['BaseEmbedder'] = None,
+        **kwargs
+    ) -> 'ChromaVectorStore':
+        """
+        Create in-memory Chroma store (for testing/prototyping)
+        
+        Data is lost when process exits.
+        Perfect for unit tests and quick experiments.
+        
+        Args:
+            collection_name: Name of the collection
+            embedder: Single embedder for all content types
+            text_embedder: Embedder for text/table units
+            image_embedder: Embedder for image units
+            **kwargs: Additional parameters
+        
+        Returns:
+            ChromaVectorStore instance
+        
+        Example:
+            >>> embedder = Embedder('bailian/text-embedding-v3')
+            >>> store = ChromaVectorStore.in_memory(
+            ...     collection_name="test",
+            ...     embedder=embedder
+            ... )
+        """
         try:
             import chromadb
         except ImportError:
@@ -93,17 +129,130 @@ class ChromaVectorStore(BaseVectorStore):
                 "Install it with: pip install chromadb"
             )
         
-        # Initialize Chroma client
-        if persist_directory:
-            self.client = chromadb.PersistentClient(path=persist_directory)
-        else:
-            self.client = chromadb.Client()
+        client = chromadb.Client()
+        return cls(
+            client=client,
+            collection_name=collection_name,
+            embedder=embedder,
+            text_embedder=text_embedder,
+            image_embedder=image_embedder,
+            **kwargs
+        )
+    
+    @classmethod
+    def local(
+        cls,
+        path: str,
+        collection_name: str = "default",
+        embedder: Optional['BaseEmbedder'] = None,
+        text_embedder: Optional['BaseEmbedder'] = None,
+        image_embedder: Optional['BaseEmbedder'] = None,
+        **kwargs
+    ) -> 'ChromaVectorStore':
+        """
+        Create local persistent Chroma store (for development)
         
-        # Get or create collection
-        self.collection_name = collection_name
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"}  # Use cosine similarity
+        Data persists to local directory.
+        Suitable for development and single-node deployment.
+        
+        Args:
+            path: Local directory to store data
+            collection_name: Name of the collection
+            embedder: Single embedder for all content types
+            text_embedder: Embedder for text/table units
+            image_embedder: Embedder for image units
+            **kwargs: Additional parameters
+        
+        Returns:
+            ChromaVectorStore instance
+        
+        Example:
+            >>> embedder = Embedder('bailian/text-embedding-v3')
+            >>> store = ChromaVectorStore.local(
+            ...     path="./chroma_db",
+            ...     collection_name="docs",
+            ...     embedder=embedder
+            ... )
+        """
+        try:
+            import chromadb
+        except ImportError:
+            raise ImportError(
+                "chromadb is required for ChromaVectorStore. "
+                "Install it with: pip install chromadb"
+            )
+        
+        client = chromadb.PersistentClient(path=path)
+        return cls(
+            client=client,
+            collection_name=collection_name,
+            embedder=embedder,
+            text_embedder=text_embedder,
+            image_embedder=image_embedder,
+            **kwargs
+        )
+    
+    @classmethod
+    def server(
+        cls,
+        host: str = "localhost",
+        port: int = 8000,
+        collection_name: str = "default",
+        embedder: Optional['BaseEmbedder'] = None,
+        text_embedder: Optional['BaseEmbedder'] = None,
+        image_embedder: Optional['BaseEmbedder'] = None,
+        **kwargs
+    ) -> 'ChromaVectorStore':
+        """
+        Connect to Chroma server (for production)
+        
+        Connects to a running Chroma server.
+        Suitable for production deployments with multiple clients.
+        
+        Args:
+            host: Chroma server host (default: localhost)
+            port: Chroma server port (default: 8000)
+            collection_name: Name of the collection
+            embedder: Single embedder for all content types
+            text_embedder: Embedder for text/table units
+            image_embedder: Embedder for image units
+            **kwargs: Additional parameters
+        
+        Returns:
+            ChromaVectorStore instance
+        
+        Example:
+            >>> # Start Chroma server first:
+            >>> # chroma run --host localhost --port 8000
+            >>> 
+            >>> embedder = Embedder('bailian/text-embedding-v3')
+            >>> store = ChromaVectorStore.server(
+            ...     host="localhost",
+            ...     port=8000,
+            ...     collection_name="docs",
+            ...     embedder=embedder
+            ... )
+        
+        Note:
+            Start Chroma server with:
+            chroma run --host localhost --port 8000
+        """
+        try:
+            import chromadb
+        except ImportError:
+            raise ImportError(
+                "chromadb is required for ChromaVectorStore. "
+                "Install it with: pip install chromadb"
+            )
+        
+        client = chromadb.HttpClient(host=host, port=port)
+        return cls(
+            client=client,
+            collection_name=collection_name,
+            embedder=embedder,
+            text_embedder=text_embedder,
+            image_embedder=image_embedder,
+            **kwargs
         )
     
     def add(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:

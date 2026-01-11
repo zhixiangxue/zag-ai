@@ -24,6 +24,20 @@ class BaseVectorStore(ABC):
         - Route different unit types to appropriate embedders
         - Automatically convert units to vectors and store
         - Automatically convert query to vector and search
+    
+    Standard Deployment Modes:
+        All vector stores use consistent factory methods with unified parameters:
+        - in_memory(collection_name, embedder) - For testing
+        - local(path, collection_name, embedder) - For development
+        - server(host, port, collection_name, embedder) - For production
+        - cloud(url, api_key, collection_name, embedder) - For managed service
+        
+        Not all stores support all modes. Unsupported modes raise NotImplementedError.
+        
+    Example:
+        >>> # Switch stores by only changing class name
+        >>> store = ChromaVectorStore.local("./db", "docs", embedder)
+        >>> store = QdrantVectorStore.local("./db", "docs", embedder)
     """
     
     def __init__(
@@ -346,3 +360,188 @@ class BaseVectorStore(ABC):
             Current embedder instance
         """
         return self.embedder
+    
+    # ============================================================================
+    # Standard Factory Methods (Unified Parameters)
+    # ============================================================================
+    
+    @classmethod
+    def in_memory(
+        cls,
+        collection_name: str = "default",
+        embedder: Optional['BaseEmbedder'] = None,
+        text_embedder: Optional['BaseEmbedder'] = None,
+        image_embedder: Optional['BaseEmbedder'] = None,
+        **kwargs
+    ) -> 'BaseVectorStore':
+        """
+        Create in-memory store (for testing)
+        
+        Standard parameters across all vector stores:
+        - collection_name: Name of the collection
+        - embedder: Single embedder for all content types
+        - text_embedder: Optional separate embedder for text
+        - image_embedder: Optional separate embedder for images
+        
+        Args:
+            collection_name: Collection name (default: "default")
+            embedder: Embedder instance
+            text_embedder: Optional text-specific embedder
+            image_embedder: Optional image-specific embedder
+            **kwargs: Implementation-specific parameters
+            
+        Returns:
+            Vector store instance
+            
+        Raises:
+            NotImplementedError: If this mode is not supported
+            
+        Example:
+            >>> store = ChromaVectorStore.in_memory("test", embedder)
+            >>> store = QdrantVectorStore.in_memory("test", embedder)
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} does not support in_memory mode. "
+            f"Check documentation for supported deployment modes."
+        )
+    
+    @classmethod
+    def local(
+        cls,
+        path: str,
+        collection_name: str = "default",
+        embedder: Optional['BaseEmbedder'] = None,
+        text_embedder: Optional['BaseEmbedder'] = None,
+        image_embedder: Optional['BaseEmbedder'] = None,
+        **kwargs
+    ) -> 'BaseVectorStore':
+        """
+        Create local persistent store (for development)
+        
+        Standard parameters across all vector stores:
+        - path: Local directory for data storage
+        - collection_name: Name of the collection
+        - embedder: Single embedder for all content types
+        - text_embedder: Optional separate embedder for text
+        - image_embedder: Optional separate embedder for images
+        
+        Args:
+            path: Local directory path
+            collection_name: Collection name (default: "default")
+            embedder: Embedder instance
+            text_embedder: Optional text-specific embedder
+            image_embedder: Optional image-specific embedder
+            **kwargs: Implementation-specific parameters
+            
+        Returns:
+            Vector store instance
+            
+        Raises:
+            NotImplementedError: If this mode is not supported
+            
+        Example:
+            >>> store = ChromaVectorStore.local("./db", "docs", embedder)
+            >>> store = QdrantVectorStore.local("./db", "docs", embedder)
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} does not support local mode. "
+            f"Check documentation for supported deployment modes."
+        )
+    
+    @classmethod
+    def server(
+        cls,
+        host: str = "localhost",
+        port: Optional[int] = None,
+        collection_name: str = "default",
+        embedder: Optional['BaseEmbedder'] = None,
+        text_embedder: Optional['BaseEmbedder'] = None,
+        image_embedder: Optional['BaseEmbedder'] = None,
+        **kwargs
+    ) -> 'BaseVectorStore':
+        """
+        Create server-connected store (for production)
+        
+        Standard parameters across all vector stores:
+        - host: Server host address
+        - port: Server port (default varies by implementation)
+        - collection_name: Name of the collection
+        - embedder: Single embedder for all content types
+        - text_embedder: Optional separate embedder for text
+        - image_embedder: Optional separate embedder for images
+        
+        Args:
+            host: Server host (default: "localhost")
+            port: Server port (implementation-specific default)
+            collection_name: Collection name (default: "default")
+            embedder: Embedder instance
+            text_embedder: Optional text-specific embedder
+            image_embedder: Optional image-specific embedder
+            **kwargs: Implementation-specific parameters
+            
+        Returns:
+            Vector store instance
+            
+        Raises:
+            NotImplementedError: If this mode is not supported
+            
+        Example:
+            >>> # Chroma (port 8000)
+            >>> store = ChromaVectorStore.server("localhost", 8000, "docs", embedder)
+            >>> # Qdrant (port 6333)
+            >>> store = QdrantVectorStore.server("localhost", 6333, "docs", embedder)
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} does not support server mode. "
+            f"Check documentation for supported deployment modes."
+        )
+    
+    @classmethod
+    def cloud(
+        cls,
+        url: str,
+        api_key: str,
+        collection_name: str = "default",
+        embedder: Optional['BaseEmbedder'] = None,
+        text_embedder: Optional['BaseEmbedder'] = None,
+        image_embedder: Optional['BaseEmbedder'] = None,
+        **kwargs
+    ) -> 'BaseVectorStore':
+        """
+        Create cloud-connected store (for managed service)
+        
+        Standard parameters across all vector stores:
+        - url: Cloud service URL
+        - api_key: API key for authentication
+        - collection_name: Name of the collection
+        - embedder: Single embedder for all content types
+        - text_embedder: Optional separate embedder for text
+        - image_embedder: Optional separate embedder for images
+        
+        Args:
+            url: Cloud service URL
+            api_key: API key
+            collection_name: Collection name (default: "default")
+            embedder: Embedder instance
+            text_embedder: Optional text-specific embedder
+            image_embedder: Optional image-specific embedder
+            **kwargs: Implementation-specific parameters
+            
+        Returns:
+            Vector store instance
+            
+        Raises:
+            NotImplementedError: If this mode is not supported
+            
+        Example:
+            >>> store = QdrantVectorStore.cloud(
+            ...     "https://xxx.qdrant.io",
+            ...     "api_key",
+            ...     "docs",
+            ...     embedder
+            ... )
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} does not support cloud mode. "
+            f"Check documentation for supported deployment modes."
+        )

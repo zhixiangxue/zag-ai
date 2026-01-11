@@ -37,9 +37,8 @@ def test_sync_operations():
         api_key=os.getenv('BAILIAN_API_KEY')
     )
     
-    vector_store = ChromaVectorStore(
+    vector_store = ChromaVectorStore.in_memory(
         collection_name="indexer_test",
-        persist_directory=None,  # In-memory
         embedder=embedder
     )
     
@@ -185,9 +184,8 @@ async def test_async_operations():
         api_key=os.getenv('BAILIAN_API_KEY')
     )
     
-    vector_store = ChromaVectorStore(
+    vector_store = ChromaVectorStore.in_memory(
         collection_name="async_test",
-        persist_directory=None,
         embedder=embedder
     )
     

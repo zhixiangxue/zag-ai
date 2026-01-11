@@ -1,0 +1,257 @@
+"""
+OpenAI Embedder Provider
+
+OpenAI provides state-of-the-art embedding models via API.
+Official documentation: https://platform.openai.com/docs/guides/embeddings
+
+Supported models:
+- text-embedding-3-small (1536 dimensions, cost-effective)
+- text-embedding-3-large (3072 dimensions, best quality)
+- text-embedding-ada-002 (1536 dimensions, legacy)
+
+Features:
+- Batch embedding support (up to 2048 inputs per request)
+- Dimension reduction support (text-embedding-3 models)
+- Automatic retry with exponential backoff
+"""
+
+import os
+from typing import Optional
+from pydantic import BaseModel, field_validator, model_validator
+
+from . import register_provider
+from .base import BaseProvider
+
+try:
+    from openai import OpenAI, APIError, RateLimitError, APIConnectionError
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+
+
+class OpenAIProviderConfig(BaseModel):
+    """Configuration for OpenAI embedder provider"""
+    
+    model: str = "text-embedding-3-small"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    organization: Optional[str] = None
+    dimensions: Optional[int] = None  # Only for text-embedding-3 models
+    timeout: int = 60
+    max_retries: int = 3
+    
+    class Config:
+        extra = "allow"  # Allow additional parameters
+    
+    @field_validator('model')
+    @classmethod
+    def validate_model(cls, v):
+        if not v:
+            raise ValueError("Model cannot be empty")
+        return v
+    
+    @field_validator('api_key', mode='before')
+    @classmethod
+    def get_api_key(cls, v):
+        """Get API key from config or environment variable"""
+        if v:
+            return v
+        # Try to get from environment
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise ValueError(
+                "OpenAI API key is required. "
+                "Set it via config or OPENAI_API_KEY environment variable."
+            )
+        return api_key
+    
+    @model_validator(mode='after')
+    def validate_dimensions(self):
+        """Validate dimensions parameter for text-embedding-3 models"""
+        if self.dimensions is not None:
+            if not self.model.startswith('text-embedding-3'):
+                raise ValueError(
+                    f"Dimension reduction is only supported for text-embedding-3 models. "
+                    f"Got model: {self.model}"
+                )
+            if self.dimensions <= 0:
+                raise ValueError(f"Dimensions must be positive, got: {self.dimensions}")
+        return self
+
+
+class OpenAIProvider(BaseProvider):
+    """
+    OpenAI embedder implementation using official OpenAI Python client
+    
+    This provider uses the official openai package to communicate with
+    OpenAI's embedding API.
+    """
+    
+    def __init__(self, config: OpenAIProviderConfig):
+        if not HAS_OPENAI:
+            raise ImportError(
+                "OpenAI SDK is required for OpenAI provider. "
+                "Install it with: pip install openai"
+            )
+        
+        self.config = config
+        self._dimension_cache = None
+        
+        # Initialize OpenAI client
+        client_kwargs = {
+            "api_key": config.api_key,
+            "timeout": config.timeout,
+            "max_retries": config.max_retries,
+        }
+        
+        if config.base_url:
+            client_kwargs["base_url"] = config.base_url
+        
+        if config.organization:
+            client_kwargs["organization"] = config.organization
+        
+        self._client = OpenAI(**client_kwargs)
+    
+    def embed_text(self, text: str) -> list[float]:
+        """
+        Embed a single text using OpenAI API
+        
+        Args:
+            text: Input text to embed
+            
+        Returns:
+            Vector representation of the text
+            
+        Raises:
+            APIError: If API request fails
+            RateLimitError: If rate limit is exceeded
+        """
+        # Prepare request parameters
+        request_params = {
+            "model": self.config.model,
+            "input": text,
+        }
+        
+        if self.config.dimensions is not None:
+            request_params["dimensions"] = self.config.dimensions
+        
+        try:
+            response = self._client.embeddings.create(**request_params)
+            return response.data[0].embedding
+        except (APIError, RateLimitError, APIConnectionError) as e:
+            raise RuntimeError(f"OpenAI API error: {e}")
+    
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """
+        Embed multiple texts using OpenAI API
+        
+        OpenAI supports batch embedding with up to 2048 inputs per request.
+        For larger batches, we automatically split into multiple requests.
+        
+        Args:
+            texts: List of input texts
+            
+        Returns:
+            List of vector representations
+            
+        Raises:
+            APIError: If API request fails
+            RateLimitError: If rate limit is exceeded
+        """
+        if not texts:
+            return []
+        
+        # OpenAI supports up to 2048 inputs per request
+        BATCH_SIZE = 2048
+        all_embeddings = []
+        
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i:i + BATCH_SIZE]
+            
+            # Prepare request parameters
+            request_params = {
+                "model": self.config.model,
+                "input": batch,
+            }
+            
+            if self.config.dimensions is not None:
+                request_params["dimensions"] = self.config.dimensions
+            
+            try:
+                response = self._client.embeddings.create(**request_params)
+                # Extract embeddings in correct order
+                batch_embeddings = [item.embedding for item in response.data]
+                all_embeddings.extend(batch_embeddings)
+            except (APIError, RateLimitError, APIConnectionError) as e:
+                raise RuntimeError(f"OpenAI API error: {e}")
+        
+        return all_embeddings
+    
+    @property
+    def dimension(self) -> int:
+        """
+        Get the embedding dimension
+        
+        For text-embedding-3 models with custom dimensions, returns the configured value.
+        Otherwise, makes a test call to determine the dimension.
+        
+        Returns:
+            Dimension of the embedding vectors
+        """
+        if self._dimension_cache is None:
+            # If dimensions is explicitly set, use it
+            if self.config.dimensions is not None:
+                self._dimension_cache = self.config.dimensions
+            else:
+                # Make a test call to get dimension
+                sample_vec = self.embed_text("dimension test")
+                self._dimension_cache = len(sample_vec)
+        return self._dimension_cache
+
+
+# Register the OpenAI provider factory
+@register_provider("openai")
+def create_openai_provider(**config) -> BaseProvider:
+    """
+    Factory function for creating OpenAI provider instances
+    
+    Args:
+        **config: Configuration parameters
+                 - model: Model name (default: "text-embedding-3-small")
+                 - api_key: OpenAI API key (or set OPENAI_API_KEY env var)
+                 - base_url: Custom API endpoint (optional, for Azure OpenAI)
+                 - organization: OpenAI organization ID (optional)
+                 - dimensions: Output dimension (optional, text-embedding-3 only)
+                 - timeout: Request timeout in seconds (default: 60)
+                 - max_retries: Maximum retry attempts (default: 3)
+        
+    Returns:
+        OpenAIProvider instance
+        
+    Examples:
+        >>> # Basic usage (API key from environment)
+        >>> provider = create_openai_provider(
+        ...     model="text-embedding-3-small"
+        ... )
+        >>> 
+        >>> # With explicit API key
+        >>> provider = create_openai_provider(
+        ...     model="text-embedding-3-large",
+        ...     api_key="sk-..."
+        ... )
+        >>> 
+        >>> # With dimension reduction
+        >>> provider = create_openai_provider(
+        ...     model="text-embedding-3-small",
+        ...     dimensions=512  # Reduce from 1536 to 512
+        ... )
+        >>> 
+        >>> # Azure OpenAI
+        >>> provider = create_openai_provider(
+        ...     model="text-embedding-3-small",
+        ...     api_key="your-azure-key",
+        ...     base_url="https://your-resource.openai.azure.com/"
+        ... )
+    """
+    validated_config = OpenAIProviderConfig(**config)
+    return OpenAIProvider(validated_config)

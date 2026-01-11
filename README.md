@@ -137,7 +137,7 @@ from zag.postprocessors import (
 pipeline = ChainPostprocessor([
     SimilarityFilter(threshold=0.5),        # Filter by similarity
     Deduplicator(),                          # Remove duplicates
-    Reranker(uri="local/bge-reranker-v2"),  # Rerank results
+    Reranker(uri="sentence_transformers/cross-encoder/ms-marco-MiniLM-L-12-v2"),  # Rerank results
     ContextAugmentor(),                      # Add surrounding context
     TokenCompressor(max_tokens=2000)         # Compress to token limit
 ])
@@ -296,10 +296,23 @@ vectors = embedder.embed(["Hello world", "Another text"])
 ```
 
 **Supported Providers:**
-- Bailian (Alibaba Cloud)
-- More providers coming soon
+- **Bailian** - Alibaba Cloud embedding service ([example](examples/embedders/bailian_example.py))
+- **OpenAI** - OpenAI embedding models ([example](examples/embedders/openai_example.py))
+- **Ollama** - Local embedding models via Ollama ([example](examples/embedders/ollama_example.py))
 
-See complete example: [bailian_example.py](examples/embedders/bailian_example.py)
+**Examples:**
+```python
+# Bailian (Alibaba Cloud)
+embedder = Embedder(uri="bailian/text-embedding-v3")
+
+# OpenAI
+embedder = Embedder(uri="openai/text-embedding-3-small")
+
+# Ollama (local)
+embedder = Embedder(uri="ollama/nomic-embed-text")
+```
+
+See complete examples: [examples/embedders/](examples/embedders/)
 
 ---
 
@@ -335,19 +348,46 @@ Storage backends for vector and unit data:
 
 | Storage | Type | Backend | Example |
 |---------|------|---------|---------|
-| **ChromaVectorStore** | Vector | ChromaDB | [vector_store_example.py](examples/storages/vector_store_example.py) |
+| **ChromaVectorStore** | Vector | ChromaDB | [chroma_example.py](examples/storages/chroma_example.py) |
+| **QdrantVectorStore** | Vector | Qdrant | [qdrant_example.py](examples/storages/qdrant_example.py) |
+| **LanceDBVectorStore** | Vector | LanceDB | [lancedb_example.py](examples/storages/lancedb_example.py) |
+| **MilvusVectorStore** | Vector | Milvus | [milvus_example.py](examples/storages/milvus_example.py) |
 
-**Example:**
+**Unified API Design** - All vector stores use consistent factory methods with identical parameters.
+Switch between stores by changing only the class name:
+
 ```python
-from zag.storages import ChromaVectorStore
-
-vector_store = ChromaVectorStore(
-    collection_name="my_collection",
-    persist_directory="./chroma_db"
+from zag.storages.vector import (
+    ChromaVectorStore,
+    QdrantVectorStore,
+    LanceDBVectorStore,
+    MilvusVectorStore
 )
+from zag.embedders import Embedder
+
+embedder = Embedder('bailian/text-embedding-v3')
+
+# In-memory mode (for testing)
+store = ChromaVectorStore.in_memory("test", embedder)
+store = QdrantVectorStore.in_memory("test", embedder)
+store = LanceDBVectorStore.in_memory("test", embedder)
+
+# Local persistent mode (for development)
+store = ChromaVectorStore.local("./db", "docs", embedder)
+store = QdrantVectorStore.local("./db", "docs", embedder)
+store = LanceDBVectorStore.local("./db", "docs", embedder)
+store = MilvusVectorStore.local("./milvus.db", "docs", embedder)
+
+# Server mode (for production)
+store = ChromaVectorStore.server("localhost", 8000, "docs", embedder)
+store = QdrantVectorStore.server("localhost", 6333, "docs", embedder)
+store = MilvusVectorStore.server("localhost", 19530, "docs", embedder)
+
+# Cloud mode (Qdrant only) - ⚠️ Not fully tested yet, use with caution
+store = QdrantVectorStore.cloud("https://xxx.qdrant.io", "api_key", "docs", embedder)
 ```
 
-See complete example: [vector_store_example.py](examples/storages/vector_store_example.py)
+See examples: [examples/storages/](examples/storages/)
 
 ---
 
@@ -387,13 +427,14 @@ See complete examples: [examples/retrievers/](examples/retrievers/)
 Post-processors refine retrieval results:
 
 | Type | Component | Purpose | Example |
-|------|-----------|---------|---------|
-| **Filter** | SimilarityFilter | Remove low-similarity results | [comprehensive_example.py](examples/postprocessors/comprehensive_example.py) |
-| **Filter** | Deduplicator | Remove duplicate results | [comprehensive_example.py](examples/postprocessors/comprehensive_example.py) |
-| **Reranker** | Reranker | Rerank with cross-encoder | [comprehensive_example.py](examples/postprocessors/comprehensive_example.py) |
-| **Augmentor** | ContextAugmentor | Add surrounding context | [comprehensive_example.py](examples/postprocessors/comprehensive_example.py) |
-| **Compressor** | TokenCompressor | Compress to token limit | [comprehensive_example.py](examples/postprocessors/comprehensive_example.py) |
-| **Composite** | ChainPostprocessor | Sequential processing | [comprehensive_example.py](examples/postprocessors/comprehensive_example.py) |
+|------|-----------|---------|---------|--|
+| **Filter** | SimilarityFilter | Remove low-similarity results | [similarity_filter_example.py](examples/postprocessors/similarity_filter_example.py) |
+| **Filter** | Deduplicator | Remove duplicate results | [deduplicator_example.py](examples/postprocessors/deduplicator_example.py) |
+| **Reranker** | Reranker | Rerank with cross-encoder | [reranker_example.py](examples/postprocessors/reranker_example.py) |
+| **Augmentor** | ContextAugmentor | Add surrounding context | [context_augmentor_example.py](examples/postprocessors/context_augmentor_example.py) |
+| **Compressor** | TokenCompressor | Compress to token limit | [token_compressor_example.py](examples/postprocessors/token_compressor_example.py) |
+| **Composite** | ChainPostprocessor | Sequential processing | [chain_example.py](examples/postprocessors/chain_example.py) |
+| **Composite** | ConditionalPostprocessor | Conditional processing | [conditional_example.py](examples/postprocessors/conditional_example.py) |
 
 **Example:**
 ```python
@@ -401,14 +442,15 @@ from zag.postprocessors import ChainPostprocessor, SimilarityFilter, Reranker, T
 
 pipeline = ChainPostprocessor([
     SimilarityFilter(threshold=0.5),
-    Reranker(uri="local/bge-reranker-v2"),
+    Reranker(uri="sentence_transformers/cross-encoder/ms-marco-MiniLM-L-12-v2"),
     TokenCompressor(max_tokens=2000)
 ])
 
 refined_results = pipeline.process(results)
 ```
 
-See complete example: [comprehensive_example.py](examples/postprocessors/comprehensive_example.py)
+See individual examples: [examples/postprocessors/](examples/postprocessors/)  
+See comprehensive example: [comprehensive_example.py](examples/postprocessors/comprehensive_example.py)
 
 ---
 
@@ -438,7 +480,7 @@ results = retriever.retrieve("query", top_k=10)
 # 6. Post-process
 pipeline = ChainPostprocessor([
     SimilarityFilter(threshold=0.5),
-    Reranker(uri="local/bge-reranker-v2"),
+    Reranker(uri="sentence_transformers/cross-encoder/ms-marco-MiniLM-L-12-v2"),
     TokenCompressor(max_tokens=2000)
 ])
 final_results = pipeline.process(results)
@@ -481,7 +523,13 @@ Zag is built on top of excellent open-source projects:
 - [MarkItDown](https://github.com/microsoft/markitdown) - Lightweight document conversion
 - [MinerU](https://github.com/opendatalab/MinerU) - OCR and complex layout extraction
 - [ChromaDB](https://github.com/chroma-core/chroma) - Vector database
+- [Qdrant](https://github.com/qdrant/qdrant) - Vector similarity search engine
+- [LanceDB](https://github.com/lancedb/lancedb) - Vector database with SQL support
+- [Milvus](https://github.com/milvus-io/milvus) - Cloud-native vector database
 - [Meilisearch](https://github.com/meilisearch/meilisearch) - Full-text search engine
+- [Ollama](https://github.com/ollama/ollama) - Local LLM and embedding runtime
+
+Special thanks to [LlamaIndex](https://github.com/run-llama/llama_index) and [RAGFlow](https://github.com/infiniflow/ragflow) for their inspiring work in the RAG ecosystem. Their design philosophies and technical insights have greatly influenced Zag's development.
 
 ---
 

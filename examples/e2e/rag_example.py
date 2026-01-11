@@ -270,10 +270,10 @@ async def step5_build_indices(units):
         api_key=API_KEY
     )
     
-    vector_store = ChromaVectorStore(
-        embedder=embedder,
+    vector_store = ChromaVectorStore.local(
+        path=str(CHROMA_PERSIST_DIR),
         collection_name="e2e_rag_test",
-        persist_directory=str(CHROMA_PERSIST_DIR)
+        embedder=embedder
     )
     print(f"   Persist directory: {CHROMA_PERSIST_DIR}")
     

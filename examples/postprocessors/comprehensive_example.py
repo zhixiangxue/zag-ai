@@ -1,6 +1,15 @@
-"""Test postprocessors - comprehensive functionality testing
+"""Comprehensive Postprocessor Examples
 
-This test demonstrates the complete postprocessor architecture with real data.
+Demonstrates complex combinations and real-world RAG pipeline scenarios.
+
+For individual postprocessor examples, see:
+- similarity_filter_example.py
+- deduplicator_example.py
+- token_compressor_example.py
+- context_augmentor_example.py
+- reranker_example.py
+- chain_example.py
+- conditional_example.py
 """
 
 import sys
@@ -47,85 +56,9 @@ def create_test_units(count: int = 10, with_chain: bool = False) -> list[TextUni
     return units
 
 
-def test_similarity_filter():
-    print("\n" + "="*70)
-    print("Test 1: SimilarityFilter")
-    print("="*70)
-    
-    units = create_test_units(10)
-    print(f"Original: {len(units)} units")
-    for i, u in enumerate(units[:3], 1):
-        print(f"  {i}. [Score: {u.score:.3f}] {u.content[:50]}...")
-    
-    # Filter with threshold 0.75
-    filter = SimilarityFilter(threshold=0.75)
-    filtered = filter.process("test query", units)
-    
-    print(f"\nAfter filtering (threshold=0.75): {len(filtered)} units")
-    for i, u in enumerate(filtered, 1):
-        print(f"  {i}. [Score: {u.score:.3f}] {u.content[:50]}...")
-
-
-def test_deduplicator():
-    print("\n" + "="*70)
-    print("Test 2: Deduplicator")
-    print("="*70)
-    
-    # Create units with duplicates
-    units = create_test_units(5)
-    units.append(units[0])  # Add duplicate
-    units.append(units[1])  # Add another duplicate
-    
-    print(f"Original: {len(units)} units (with duplicates)")
-    
-    # Deduplicate
-    dedup = Deduplicator(strategy="exact")
-    unique = dedup.process("test query", units)
-    
-    print(f"After deduplication: {len(unique)} unique units")
-
-
-def test_token_compressor():
-    print("\n" + "="*70)
-    print("Test 3: TokenCompressor")
-    print("="*70)
-    
-    units = create_test_units(20)
-    print(f"Original: {len(units)} units")
-    
-    # Compress to 1000 tokens (roughly 10 units)
-    compressor = TokenCompressor(max_tokens=1000, strategy="smart")
-    compressed = compressor.process("test query", units)
-    
-    print(f"After compression (max_tokens=1000): {len(compressed)} units")
-
-
-def test_context_augmentor():
-    print("\n" + "="*70)
-    print("Test 4: ContextAugmentor")
-    print("="*70)
-    
-    # Create units with chain relationships
-    units = create_test_units(10, with_chain=True)
-    
-    # Select a few units (simulate retrieval results)
-    selected = [units[3], units[7]]
-    print(f"Selected: {len(selected)} units")
-    for u in selected:
-        print(f"  - {u.unit_id}")
-    
-    # Augment with context (window_size=1)
-    augmentor = ContextAugmentor(window_size=1)
-    augmented = augmentor.process("test query", selected)
-    
-    print(f"\nAfter augmentation (window_size=1): {len(augmented)} units")
-    for u in augmented:
-        print(f"  - {u.unit_id}")
-
-
 def test_chain_postprocessor():
     print("\n" + "="*70)
-    print("Test 5: ChainPostprocessor")
+    print("Example 1: ChainPostprocessor - Sequential Pipeline")
     print("="*70)
     
     units = create_test_units(20)
@@ -152,7 +85,7 @@ def test_chain_postprocessor():
 
 def test_conditional_postprocessor():
     print("\n" + "="*70)
-    print("Test 6: ConditionalPostprocessor")
+    print("Example 2: ConditionalPostprocessor - Adaptive Processing")
     print("="*70)
     
     # Define condition
@@ -182,20 +115,37 @@ def test_conditional_postprocessor():
 
 def test_reranker():
     print("\n" + "="*70)
-    print("Test 7: Reranker (Requires sentence-transformers)")
+    print("Example 3: Reranker - Two-Stage Retrieval")
     print("="*70)
     
-    print("Note: Reranker requires sentence-transformers package.")
-    print("Install with: pip install sentence-transformers")
-    print("\nExample usage:")
-    print("  from zag.postprocessors import Reranker")
-    print("  reranker = Reranker('local/cross-encoder/ms-marco-MiniLM-L-12-v2')")
-    print("  reranked = reranker.rerank(query, units, top_k=10)")
+    try:
+        units = create_test_units(10)
+        print(f"Original: {len(units)} units")
+        for i, u in enumerate(units[:3], 1):
+            print(f"  {i}. [Score: {u.score:.3f}] {u.content[:50]}...")
+        
+        # Create reranker
+        reranker = Reranker("sentence_transformers/cross-encoder/ms-marco-MiniLM-L-12-v2")
+        
+        query = "machine learning"
+        reranked = reranker.rerank(query, units, top_k=5)
+        
+        print(f"\nReranked (top 5): {len(reranked)} units")
+        for i, u in enumerate(reranked, 1):
+            print(f"  {i}. [Score: {u.score:.3f}] {u.content[:50]}...")
+        
+    except ImportError:
+        print("\n⚠️  sentence-transformers not installed")
+        print("Install with: pip install sentence-transformers")
+        print("\nExample usage:")
+        print("  from zag.postprocessors import Reranker")
+        print("  reranker = Reranker('sentence_transformers/cross-encoder/ms-marco-MiniLM-L-12-v2')")
+        print("  reranked = reranker.rerank(query, units, top_k=10)")
 
 
 def test_nested_combination():
     print("\n" + "="*70)
-    print("Test 8: Nested Combination")
+    print("Example 4: Nested Combination - Complex Pipeline")
     print("="*70)
     
     units = create_test_units(30)
@@ -242,20 +192,22 @@ def test_nested_combination():
 
 def main():
     print("\n" + "="*70)
-    print("Postprocessor Module - Comprehensive Testing")
+    print("Comprehensive Postprocessor Examples")
     print("="*70)
+    print("\nThese examples demonstrate complex combinations of postprocessors.")
+    print("For individual postprocessor usage, see their dedicated example files.")
     
-    test_similarity_filter()
-    test_deduplicator()
-    test_token_compressor()
-    test_context_augmentor()
     test_chain_postprocessor()
     test_conditional_postprocessor()
     test_reranker()
     test_nested_combination()
     
     print("\n" + "="*70)
-    print("All tests completed successfully!")
+    print("All examples completed successfully!")
+    print("="*70)
+    print("\nNext steps:")
+    print("  - Check individual example files for detailed usage")
+    print("  - Combine postprocessors to build your RAG pipeline")
     print("="*70)
 
 

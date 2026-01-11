@@ -19,7 +19,7 @@ class Reranker(BaseReranker):
     providers (local models, remote APIs, etc.) through a unified interface.
     
     Characteristics:
-        - Supports multiple providers (local, cohere, jina, etc.)
+        - Supports multiple providers (sentence_transformers, cohere, jina, etc.)
         - URI-based or parameter-based configuration
         - Can be used standalone or in postprocessor pipelines
     
@@ -27,12 +27,12 @@ class Reranker(BaseReranker):
         >>> from zag.postprocessors import Reranker
         >>> 
         >>> # URI format - simple
-        >>> reranker = Reranker("local/cross-encoder/ms-marco-MiniLM-L-12-v2")
+        >>> reranker = Reranker("sentence_transformers/cross-encoder/ms-marco-MiniLM-L-12-v2")
         >>> reranked = reranker.rerank(query, units, top_k=10)
         >>> 
         >>> # Parameter format
         >>> reranker = Reranker(
-        ...     provider="local",
+        ...     provider="sentence_transformers",
         ...     model="cross-encoder/ms-marco-MiniLM-L-12-v2",
         ...     device="cuda"
         ... )
@@ -41,7 +41,7 @@ class Reranker(BaseReranker):
         >>> from zag.postprocessors import ChainPostprocessor
         >>> pipeline = ChainPostprocessor([
         ...     SimilarityFilter(threshold=0.7),
-        ...     Reranker("local/cross-encoder/ms-marco-MiniLM-L-12-v2"),
+        ...     Reranker("sentence_transformers/cross-encoder/ms-marco-MiniLM-L-12-v2"),
         ... ])
     """
     
@@ -57,18 +57,18 @@ class Reranker(BaseReranker):
         Initialize the reranker
         
         Args:
-            uri: Reranker URI string (e.g., "local/cross-encoder-ms-marco")
+            uri: Reranker URI string (e.g., "sentence_transformers/cross-encoder-ms-marco")
             provider: Provider name (required if uri is not provided)
             model: Model name (required if uri is not provided)
             **config: Additional configuration (device, batch_size, api_key, etc.)
             
         Examples:
             >>> # URI format
-            >>> reranker = Reranker("local/cross-encoder/ms-marco-MiniLM-L-12-v2")
+            >>> reranker = Reranker("sentence_transformers/cross-encoder/ms-marco-MiniLM-L-12-v2")
             >>> 
             >>> # Parameter format
             >>> reranker = Reranker(
-            ...     provider="local",
+            ...     provider="sentence_transformers",
             ...     model="cross-encoder/ms-marco-MiniLM-L-12-v2",
             ...     device="cuda",
             ...     batch_size=64
@@ -79,6 +79,7 @@ class Reranker(BaseReranker):
             provider = parsed['provider']
             model = parsed['model']
             
+            # Merge URI params with config
             uri_params = parsed.get('params', {})
             if parsed.get('base_url'):
                 uri_params['base_url'] = parsed['base_url']
@@ -92,9 +93,8 @@ class Reranker(BaseReranker):
                 f"Available providers: {', '.join(available)}"
             )
         
-        config['model'] = model
-        
-        self._provider = create_provider(provider, config)
+        # Create provider with explicit parameters
+        self._provider = create_provider(provider, model, **config)
         self._provider_name = provider
         self._model = model
     
@@ -116,7 +116,7 @@ class Reranker(BaseReranker):
             Reranked units, sorted by new relevance scores (descending)
             
         Example:
-            >>> reranker = Reranker("local/cross-encoder/ms-marco")
+            >>> reranker = Reranker("sentence_transformers/cross-encoder/ms-marco")
             >>> units = [unit1, unit2, unit3]
             >>> reranked = reranker.rerank("machine learning", units, top_k=2)
         """

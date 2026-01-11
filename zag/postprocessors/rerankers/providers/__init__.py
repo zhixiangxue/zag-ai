@@ -4,23 +4,24 @@ Reranker provider registry and factory
 
 from typing import Any
 from .base import BaseProvider
-from .local import LocalProvider
+from .sentence_transformers import SentenceTransformersProvider
 from ..exceptions import ProviderError
 
 
 # Provider registry
 _PROVIDERS = {
-    "local": LocalProvider,
+    "sentence_transformers": SentenceTransformersProvider,
 }
 
 
-def create_provider(provider_name: str, config: dict[str, Any]) -> BaseProvider:
+def create_provider(provider_name: str, model: str, **kwargs: Any) -> BaseProvider:
     """
     Create a reranker provider instance
     
     Args:
-        provider_name: Name of the provider (e.g., "local", "cohere")
-        config: Configuration dictionary
+        provider_name: Name of the provider ("sentence_transformers")
+        model: Model name or path
+        **kwargs: Additional provider-specific configuration
         
     Returns:
         Provider instance
@@ -36,7 +37,7 @@ def create_provider(provider_name: str, config: dict[str, Any]) -> BaseProvider:
         )
     
     provider_class = _PROVIDERS[provider_name]
-    return provider_class(config)
+    return provider_class(model=model, **kwargs)
 
 
 def get_available_providers() -> list[str]:
@@ -51,7 +52,7 @@ def get_available_providers() -> list[str]:
 
 __all__ = [
     "BaseProvider",
-    "LocalProvider",
+    "SentenceTransformersProvider",
     "create_provider",
     "get_available_providers",
 ]

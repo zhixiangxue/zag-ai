@@ -1,31 +1,45 @@
 """
-Local cross-encoder reranker provider
+Sentence-Transformers cross-encoder reranker provider
+
+Uses sentence-transformers library for local cross-encoder reranking.
+Official documentation: https://www.sbert.net/docs/pretrained_cross-encoders.html
+
+Supported models:
+- ms-marco-MiniLM-L-12-v2
+- ms-marco-TinyBERT-L-2-v2
+- cross-encoder/ms-marco-electra-base
+- Any cross-encoder model from HuggingFace
 """
 
-from typing import Any
+from typing import Optional
 from .base import BaseProvider
 
 
-class LocalProvider(BaseProvider):
+class SentenceTransformersProvider(BaseProvider):
     """
-    Local cross-encoder reranker using sentence-transformers
+    Sentence-Transformers cross-encoder reranker
     
-    Supports running cross-encoder models locally.
+    Uses CrossEncoder models from sentence-transformers library.
+    Runs locally without external API dependencies.
     """
     
-    def __init__(self, config: dict[str, Any]):
+    def __init__(
+        self,
+        model: str,
+        device: Optional[str] = None,
+        batch_size: int = 32
+    ):
         """
-        Initialize local cross-encoder provider
+        Initialize sentence-transformers cross-encoder provider
         
         Args:
-            config: Configuration dict with keys:
-                - model: Model name or path (required)
-                - device: Computing device ("cuda" or "cpu", None for auto)
-                - batch_size: Batch size for inference
+            model: Model name or path (e.g., "cross-encoder/ms-marco-MiniLM-L-12-v2")
+            device: Computing device ("cuda" or "cpu", None for auto)
+            batch_size: Batch size for inference (default: 32)
         """
-        self.model_name = config['model']
-        self.device = config.get('device')
-        self.batch_size = config.get('batch_size', 32)
+        self.model_name = model
+        self.device = device
+        self.batch_size = batch_size
         self._model = None
     
     def _load_model(self):
@@ -35,7 +49,7 @@ class LocalProvider(BaseProvider):
                 from sentence_transformers import CrossEncoder
             except ImportError:
                 raise ImportError(
-                    "sentence-transformers is required for local reranker. "
+                    "sentence-transformers is required for this provider. "
                     "Install it with: pip install sentence-transformers"
                 )
             
