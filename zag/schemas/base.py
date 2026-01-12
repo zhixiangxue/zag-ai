@@ -62,6 +62,7 @@ class DocumentMetadata(BaseModel):
     file_name: Optional[str] = None
     file_size: Optional[int] = None  # in bytes
     file_extension: Optional[str] = None
+    md5: str  # File hash (xxhash), REQUIRED for integrity check
     
     # Content information
     content_length: int = 0  # length in characters

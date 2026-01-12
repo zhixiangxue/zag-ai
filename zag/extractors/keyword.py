@@ -73,10 +73,20 @@ class KeywordExtractor(BaseExtractor):
             num_keywords=self.num_keywords
         )
         
-        # 使用结构化输出
-        response = await self._conv.asend(prompt, returns=KeywordList)
+        try:
+            # Use structured output
+            response = await self._conv.asend(prompt, returns=KeywordList)
+            
+            # Check if response is valid
+            if response is None:
+                return {"excerpt_keywords": []}
+            
+            # response is already a KeywordList object, access keywords directly
+            keywords = response.keywords[:self.num_keywords]
+            
+            return {"excerpt_keywords": keywords}
         
-        # response.content 已经是 KeywordList 对象
-        keywords = response.content.keywords[:self.num_keywords]
-        
-        return {"excerpt_keywords": keywords}
+        except Exception as e:
+            # If extraction fails, return empty list
+            print(f"Warning: Keyword extraction failed: {e}")
+            return {"excerpt_keywords": []}

@@ -11,6 +11,7 @@ from .base import BaseReader
 from ..schemas.base import BaseDocument, DocumentMetadata, Page
 from ..schemas.pdf import PDF
 from ..utils.source import SourceUtils, FileType, SourceInfo
+from ..utils.hash import calculate_file_hash
 
 
 class MinerUReader(BaseReader):
@@ -405,13 +406,27 @@ class MinerUReader(BaseReader):
         Returns:
             DocumentMetadata object
         """
-        # Get file size if local file
+        # Get file size and calculate hash for local files
         file_size = None
+        file_hash = None
+        
         if info.source_type.value == "local":
             try:
-                file_size = Path(info.source).stat().st_size
-            except Exception:
-                pass
+                file_path = Path(info.source)
+                file_size = file_path.stat().st_size
+                # Calculate file hash using xxhash
+                file_hash = calculate_file_hash(file_path)
+            except Exception as e:
+                # If hash calculation fails, raise error (md5 is required)
+                raise RuntimeError(
+                    f"Failed to calculate file hash for {info.source}: {e}"
+                )
+        else:
+            # For URL sources, we cannot calculate file hash
+            raise ValueError(
+                "File hash calculation not supported for URL sources. "
+                "Please download the file first and read from local path."
+            )
         
         return DocumentMetadata(
             source=info.source,
@@ -420,6 +435,7 @@ class MinerUReader(BaseReader):
             file_name=Path(info.source).name if info.source_type.value == "local" else None,
             file_size=file_size,
             file_extension=info.file_extension if info.file_extension else None,
+            md5=file_hash,  # Required field
             content_length=len(content),
             mime_type=info.mime_type if info.mime_type else None,
             reader_name="MinerUReader",
