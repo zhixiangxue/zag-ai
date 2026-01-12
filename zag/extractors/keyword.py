@@ -3,6 +3,7 @@ Keyword extractor for extracting keywords from units
 """
 
 from typing import List, Dict, Sequence
+from pydantic import BaseModel, Field
 
 
 from .base import BaseExtractor
@@ -15,10 +16,14 @@ DEFAULT_TEMPLATE = """从以下文本中提取 {num_keywords} 个最重要的关
 
 要求：
 1. 关键词应能唯一标识这段文本的核心主题
-2. 返回JSON 数组格式，如：["keyword1", "keyword2", "keyword3"]
-3. 使用原文语言
+2. 使用原文语言
 
-关键词数组："""
+请提取关键词："""
+
+
+class KeywordList(BaseModel):
+    """关键词列表结构"""
+    keywords: List[str] = Field(description="Extracted keywords from the text")
 
 
 class KeywordExtractor(BaseExtractor):
@@ -48,7 +53,7 @@ class KeywordExtractor(BaseExtractor):
     def __init__(
         self,
         llm_uri: str,
-        api_key: str,
+        api_key: str = None,
         num_keywords: int = 5,
     ):
         self.llm_uri = llm_uri
@@ -68,17 +73,10 @@ class KeywordExtractor(BaseExtractor):
             num_keywords=self.num_keywords
         )
         
-        response = await self._conv.asend(prompt)
+        # 使用结构化输出
+        response = await self._conv.asend(prompt, returns=KeywordList)
         
-        # Parse JSON array
-        import json
-        try:
-            keywords = json.loads(response.content.strip())
-            if not isinstance(keywords, list):
-                # Fallback: try splitting by comma
-                keywords = [k.strip() for k in response.content.strip().split(',')]
-        except json.JSONDecodeError:
-            # Fallback: split by comma
-            keywords = [k.strip() for k in response.content.strip().split(',')]
+        # response.content 已经是 KeywordList 对象
+        keywords = response.content.keywords[:self.num_keywords]
         
-        return {"excerpt_keywords": keywords[:self.num_keywords]}
+        return {"excerpt_keywords": keywords}

@@ -196,6 +196,53 @@ class DoclingReader(BaseReader):
         # Extract markdown content
         markdown_content = docling_doc.export_to_markdown()
         
+        # ⚠️ WARNING: Known Issue - Cross-Page Table Splitting
+        #    
+        #    Docling has a critical limitation when handling tables that span multiple pages:
+        #    
+        #    Problem:
+        #      When a table spans across page boundaries in the PDF, Docling will:
+        #      1. Split it into separate tables at the page break
+        #      2. Treat the first row of the continuation as a NEW table header
+        #      3. Generate a new separator line (|---|---| etc.)
+        #    
+        #    Impact:
+        #      - The most serious issue is NOT the splitting itself, but the MISIDENTIFICATION
+        #        of data rows as headers
+        #      - This corrupts the semantic meaning of the table
+        #      - Example: In usda.md line 10679, a data row becomes a "header" of a "new" table
+        #    
+        #    Why We Can't Fix It Here:
+        #      - By the time we get the Markdown output, table structure is already corrupted
+        #      - Cannot distinguish "true separate tables" from "incorrectly split tables"
+        #      - Any automatic merging risks combining genuinely separate tables
+        #    
+        #    Related:
+        #      - GitHub Discussion #1104: Multi page table provenance
+        #      - This is a known Docling limitation as of 2024
+        #    
+        #    Future Solution:
+        #      - Requires upstream fix in Docling's TableFormer
+        #      - May need manual intervention or human-in-the-loop for critical documents
+        #      - Could potentially be addressed by analyzing table.prov data BEFORE Markdown export
+        #    
+        #    Recommendation:
+        #      - For documents with critical cross-page tables, consider:
+        #        * Manual review and correction
+        #        * Alternative PDF parsers (e.g., MinerU with HTML table output)
+        #        * Pre-processing PDFs to avoid page breaks in tables
+        
+        # 🔧 TODO: Remove this patch when Docling fixes Issue #1023
+        #          (https://github.com/docling-project/docling/issues/1023)
+        #          
+        #          Docling currently exports all headers as H2 (##), losing hierarchical structure.
+        #          We use SimpleHeaderLevelFixer to infer correct levels based on content patterns.
+        #          
+        #          This is a temporary workaround and should be removed once upstream is fixed.
+        from .patches import SimpleHeaderLevelFixer
+        fixer = SimpleHeaderLevelFixer()
+        markdown_content = fixer.process(markdown_content)
+        
         # Build structured pages
         pages = self._extract_pages(docling_doc)
         

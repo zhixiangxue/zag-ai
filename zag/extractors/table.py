@@ -54,7 +54,7 @@ class TableExtractor(BaseExtractor):
         ...         unit.embedding_content = metadata["embedding_content"]
     """
     
-    def __init__(self, llm_uri: str, api_key: str):
+    def __init__(self, llm_uri: str, api_key: str = None):
         self.llm_uri = llm_uri
         self.api_key = api_key
         
@@ -170,13 +170,18 @@ class TableExtractor(BaseExtractor):
         Returns:
             Natural language description, or None if all retries fail
         """
-        prompt = f"""Convert the following table into natural language description. Use the SAME LANGUAGE as the table content.
+        prompt = f"""Convert the following table into natural language description.
+
+IMPORTANT: You MUST respond in the SAME LANGUAGE as the table content below.
+- If the table is in English, respond in English
+- If the table is in Chinese, respond in Chinese
+- If the table is in other languages, respond in that language
 
 Table data:
 {json_data}
 
 Requirements:
-- Use the same language as the table (e.g., if table is in Chinese, respond in Chinese)
+- Use the EXACT SAME LANGUAGE as the table content (do NOT translate)
 - Include ALL data from the table - do NOT summarize or omit any information
 - Describe each row with complete details from all columns
 - Use complete sentences suitable for vector search

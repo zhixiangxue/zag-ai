@@ -3,11 +3,11 @@ Recursive merging splitter
 Merges small chunks into larger ones based on token count
 """
 
-from typing import Optional, Any
+from typing import Optional, Any, Union
 import tiktoken
 
 from ..base import BaseSplitter
-from ...schemas.base import BaseUnit
+from ...schemas.base import BaseUnit, BaseDocument, UnitMetadata
 from ...schemas.unit import TextUnit
 
 
@@ -15,41 +15,34 @@ class RecursiveMergingSplitter(BaseSplitter):
     """
     Recursive merging splitter
     
-    Wraps an existing splitter (e.g., MarkdownHeaderSplitter) and intelligently
-    merges small chunks into larger ones until reaching the target token size.
+    Intelligently merges small chunks into larger ones until reaching
+    the target token size. Designed to work in pipelines with other splitters.
     
     Workflow:
-    1. Use base_splitter to split document into small chunks
+    1. Receives units from previous splitter (or document)
     2. Merge adjacent chunks sequentially using TextUnit's + operator
     3. Stop merging when target token size is reached, start a new group
     4. Preserve chain relationships (prev_unit_id / next_unit_id)
     
     Features:
-    - Does not modify base splitter behavior
     - Preserves original header hierarchy information
     - Smart merging to avoid semantic fragmentation
     - Simplified merge logic using TextUnit.__add__()
+    - Works seamlessly in pipeline composition
     
     Args:
-        base_splitter: Base splitter (e.g., MarkdownHeaderSplitter)
         target_token_size: Target token count per merged chunk (default: 500)
         tokenizer: Token counter (defaults to tiktoken cl100k_base)
     
     Example:
-        >>> from zag.splitters.markdown import MarkdownHeaderSplitter
-        >>> from zag.splitters.composite import RecursiveMergingSplitter
+        >>> from zag.splitters import MarkdownHeaderSplitter, RecursiveMergingSplitter
         >>> 
-        >>> # Create base splitter
-        >>> base_splitter = MarkdownHeaderSplitter()
-        >>> 
-        >>> # Wrap with recursive merging
-        >>> merger = RecursiveMergingSplitter(
-        ...     base_splitter=base_splitter,
-        ...     target_token_size=800  # Merge until ~800 tokens
+        >>> # Use in pipeline
+        >>> pipeline = (
+        ...     MarkdownHeaderSplitter()
+        ...     | RecursiveMergingSplitter(target_token_size=800)
         ... )
-        >>> 
-        >>> # Split document
-        >>> units = doc.split(merger)
+        >>> units = doc.split(pipeline)
         >>> # Result: each unit has ~800 tokens with complete semantics
     
     Notes:
@@ -60,7 +53,6 @@ class RecursiveMergingSplitter(BaseSplitter):
     
     def __init__(
         self,
-        base_splitter: BaseSplitter,
         target_token_size: int = 500,
         tokenizer: Optional[Any] = None
     ):
@@ -68,11 +60,9 @@ class RecursiveMergingSplitter(BaseSplitter):
         Initialize recursive merging splitter
         
         Args:
-            base_splitter: Base splitter to wrap
             target_token_size: Target token count per chunk (stops merging at this size)
             tokenizer: Custom tokenizer (defaults to tiktoken cl100k_base)
         """
-        self.base_splitter = base_splitter
         self.target_token_size = target_token_size
         
         # Default to tiktoken (OpenAI's tokenizer)
@@ -99,34 +89,63 @@ class RecursiveMergingSplitter(BaseSplitter):
         """
         return len(self.tokenizer.encode(text))
     
-    def _do_split(self, document) -> list[BaseUnit]:
+    def _do_split(self, input_data: Union[BaseDocument, list[BaseUnit]]) -> list[BaseUnit]:
         """
-        Execute splitting + merging
+        Execute merging on units
         
-        Flow:
-        1. Use base_splitter to split into small chunks
-        2. Merge adjacent chunks until reaching target token size
-        3. Preserve chain relationships and metadata
+        Supports two input types:
+        1. Document - Convert to single unit then return
+        2. list[BaseUnit] - Merge units based on token size
         
         Args:
-            document: Document to split
+            input_data: Document or units to process
         
         Returns:
             List of merged units
         """
-        # 1. Base splitting
-        base_units = self.base_splitter.split(document)
+        # Check input type
+        if isinstance(input_data, list):
+            # Process units: merge them
+            return self._merge_units(input_data)
+        else:
+            # Process document: create single unit
+            content = input_data.content if hasattr(input_data, 'content') else ""
+            
+            if not content:
+                return []
+            
+            # Create a TextUnit from the document content
+            unit = TextUnit(
+                unit_id=self.generate_unit_id(),
+                content=content,
+                metadata=UnitMetadata()  # Create proper metadata
+            )
+            
+            return [unit]
+    
+    def _merge_units(self, units: list[BaseUnit]) -> list[BaseUnit]:
+        """
+        Merge units based on token size
         
-        if not base_units:
+        This is called by CompositeSplitter in pipeline mode.
+        Merges adjacent TextUnits until reaching target token size.
+        
+        Args:
+            units: List of units to merge
+            
+        Returns:
+            List of merged units
+        """
+        if not units:
             return []
         
         # Filter to TextUnits only (skip TableUnit, ImageUnit, etc.)
-        text_units = [u for u in base_units if isinstance(u, TextUnit)]
+        text_units = [u for u in units if isinstance(u, TextUnit)]
         
         if not text_units:
-            return base_units
+            return units
         
-        # 2. Recursive merging
+        # Merge adjacent units
         merged_units = []
         current_merged: Optional[TextUnit] = None
         current_tokens = 0
@@ -157,7 +176,7 @@ class RecursiveMergingSplitter(BaseSplitter):
         if current_merged:
             merged_units.append(current_merged)
         
-        # 3. Rebuild chain relationships
+        # Rebuild chain relationships
         for i in range(len(merged_units)):
             if i > 0:
                 merged_units[i].prev_unit_id = merged_units[i - 1].unit_id
@@ -173,8 +192,4 @@ class RecursiveMergingSplitter(BaseSplitter):
     
     def __repr__(self) -> str:
         """String representation"""
-        return (
-            f"RecursiveMergingSplitter("
-            f"base={self.base_splitter.__class__.__name__}, "
-            f"target={self.target_token_size})"
-        )
+        return f"RecursiveMergingSplitter(target={self.target_token_size})"
