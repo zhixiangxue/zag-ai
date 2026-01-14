@@ -2,15 +2,20 @@
 Postprocessors module for optimizing retrieval results
 
 Architecture:
-    - base.py: BasePostprocessor abstract class
+    - base.py: BasePostprocessor abstract class and PostprocessorPipeline
     - rerankers/: Reranking postprocessors (recompute relevance scores)
     - filters/: Filtering postprocessors (remove unwanted results)
     - augmentors/: Augmentation postprocessors (add context)
     - compressors/: Compression postprocessors (reduce content)
-    - composite/: Composite postprocessors (orchestrate multiple processors)
+    - selectors/: Selection postprocessors (extract relevant passages)
+
+Usage:
+    >>> # Chain postprocessors using | operator
+    >>> pipeline = Reranker(...) | SimilarityFilter(0.7) | TokenCompressor(4000)
+    >>> result = pipeline.process(query, units)
 """
 
-from .base import BasePostprocessor
+from .base import BasePostprocessor, PostprocessorPipeline
 
 # Rerankers
 from .rerankers import (
@@ -34,15 +39,15 @@ from .compressors import (
     TokenCompressor,
 )
 
-# Composite
-from .composite import (
-    ChainPostprocessor,
-    ConditionalPostprocessor,
+# Selectors
+from .selectors import (
+    LLMSelector,
 )
 
 __all__ = [
     # Base
     "BasePostprocessor",
+    "PostprocessorPipeline",
     # Rerankers
     "BaseReranker",
     "Reranker",
@@ -53,7 +58,6 @@ __all__ = [
     "ContextAugmentor",
     # Compressors
     "TokenCompressor",
-    # Composite
-    "ChainPostprocessor",
-    "ConditionalPostprocessor",
+    # Selectors
+    "LLMSelector",
 ]

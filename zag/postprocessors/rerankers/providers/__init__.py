@@ -5,12 +5,16 @@ Reranker provider registry and factory
 from typing import Any
 from .base import BaseProvider
 from .sentence_transformers import SentenceTransformersProvider
+from .cohere import CohereProvider
+from .ollama import OllamaProvider
 from ..exceptions import ProviderError
 
 
 # Provider registry
 _PROVIDERS = {
     "sentence_transformers": SentenceTransformersProvider,
+    "cohere": CohereProvider,
+    "ollama": OllamaProvider,
 }
 
 
@@ -53,6 +57,8 @@ def get_available_providers() -> list[str]:
 __all__ = [
     "BaseProvider",
     "SentenceTransformersProvider",
+    "CohereProvider",
+    "OllamaProvider",
     "create_provider",
     "get_available_providers",
 ]

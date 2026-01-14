@@ -16,6 +16,7 @@ Features:
 """
 
 import os
+import logging
 from typing import Optional
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -27,6 +28,14 @@ try:
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
+
+try:
+    import tiktoken
+    HAS_TIKTOKEN = True
+except ImportError:
+    HAS_TIKTOKEN = False
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIProviderConfig(BaseModel):
@@ -96,6 +105,15 @@ class OpenAIProvider(BaseProvider):
         
         self.config = config
         self._dimension_cache = None
+        self._tokenizer = None
+        
+        # Initialize tiktoken encoder if available
+        if HAS_TIKTOKEN:
+            try:
+                # Use cl100k_base encoding for text-embedding-3 models
+                self._tokenizer = tiktoken.get_encoding("cl100k_base")
+            except Exception as e:
+                logger.warning(f"Failed to initialize tiktoken: {e}. Token counting will use estimation.")
         
         # Initialize OpenAI client
         client_kwargs = {
@@ -111,6 +129,55 @@ class OpenAIProvider(BaseProvider):
             client_kwargs["organization"] = config.organization
         
         self._client = OpenAI(**client_kwargs)
+    
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens in text using tiktoken or estimation"""
+        if self._tokenizer:
+            try:
+                return len(self._tokenizer.encode(text))
+            except Exception:
+                pass
+        # Fallback: rough estimation (1 token ≈ 4 characters)
+        return len(text) // 4
+    
+    def _create_token_aware_batches(self, texts: list[str], max_tokens: int = 250000, max_inputs: int = 2048) -> list[list[str]]:
+        """
+        Split texts into batches based on both token count and input count
+        
+        Args:
+            texts: List of texts to batch
+            max_tokens: Maximum tokens per batch (default: 250,000 for safety)
+            max_inputs: Maximum number of inputs per batch (default: 2,048)
+        
+        Returns:
+            List of batches, where each batch is a list of texts
+        """
+        batches = []
+        current_batch = []
+        current_tokens = 0
+        
+        for text in texts:
+            token_count = self._count_tokens(text)
+            
+            # Check if adding this text would exceed limits
+            would_exceed_tokens = current_tokens + token_count > max_tokens
+            would_exceed_inputs = len(current_batch) >= max_inputs
+            
+            if current_batch and (would_exceed_tokens or would_exceed_inputs):
+                # Start a new batch
+                batches.append(current_batch)
+                current_batch = [text]
+                current_tokens = token_count
+            else:
+                # Add to current batch
+                current_batch.append(text)
+                current_tokens += token_count
+        
+        # Add the last batch
+        if current_batch:
+            batches.append(current_batch)
+        
+        return batches
     
     def embed_text(self, text: str) -> list[float]:
         """
@@ -143,10 +210,11 @@ class OpenAIProvider(BaseProvider):
     
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
-        Embed multiple texts using OpenAI API
+        Embed multiple texts using OpenAI API with token-aware batching
         
-        OpenAI supports batch embedding with up to 2048 inputs per request.
-        For larger batches, we automatically split into multiple requests.
+        Automatically splits large batches to respect both:
+        - Input count limit: 2,048 inputs per request
+        - Token limit: 250,000 tokens per request (with safety buffer)
         
         Args:
             texts: List of input texts
@@ -161,13 +229,15 @@ class OpenAIProvider(BaseProvider):
         if not texts:
             return []
         
-        # OpenAI supports up to 2048 inputs per request
-        BATCH_SIZE = 2048
+        # Create token-aware batches
+        batches = self._create_token_aware_batches(texts, max_tokens=250000, max_inputs=2048)
+        
+        if len(batches) > 1:
+            logger.info(f"Split {len(texts)} texts into {len(batches)} batches to respect token limits")
+        
         all_embeddings = []
         
-        for i in range(0, len(texts), BATCH_SIZE):
-            batch = texts[i:i + BATCH_SIZE]
-            
+        for batch_idx, batch in enumerate(batches, 1):
             # Prepare request parameters
             request_params = {
                 "model": self.config.model,
@@ -178,11 +248,13 @@ class OpenAIProvider(BaseProvider):
                 request_params["dimensions"] = self.config.dimensions
             
             try:
+                logger.debug(f"Processing batch {batch_idx}/{len(batches)} with {len(batch)} texts")
                 response = self._client.embeddings.create(**request_params)
                 # Extract embeddings in correct order
                 batch_embeddings = [item.embedding for item in response.data]
                 all_embeddings.extend(batch_embeddings)
             except (APIError, RateLimitError, APIConnectionError) as e:
+                logger.error(f"Batch {batch_idx}/{len(batches)} failed: {e}")
                 raise RuntimeError(f"OpenAI API error: {e}")
         
         return all_embeddings
