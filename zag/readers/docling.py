@@ -197,204 +197,67 @@ class DoclingReader(BaseReader):
         # Extract markdown content
         markdown_content = docling_doc.export_to_markdown()
         
-        # ⚠️ WARNING: Known Issue - Cross-Page Table Splitting
-        #    
-        #    Docling has a critical limitation when handling tables that span multiple pages:
-        #    
-        #    Problem:
-        #      When a table spans across page boundaries in the PDF, Docling will:
-        #      1. Split it into separate tables at the page break
-        #      2. Treat the first row of the continuation as a NEW table header
-        #      3. Generate a new separator line (|---|---| etc.)
-        #    
-        #    Impact:
-        #      - The most serious issue is NOT the splitting itself, but the MISIDENTIFICATION
-        #        of data rows as headers
-        #      - This corrupts the semantic meaning of the table
-        #      - Example: In usda.md line 10679, a data row becomes a "header" of a "new" table
-        #    
-        #    Why We Can't Fix It Here:
-        #      - By the time we get the Markdown output, table structure is already corrupted
-        #      - Cannot distinguish "true separate tables" from "incorrectly split tables"
-        #      - Any automatic merging risks combining genuinely separate tables
-        #    
-        #    Related:
-        #      - GitHub Discussion #1104: Multi page table provenance
-        #      - This is a known Docling limitation as of 2024
-        #    
-        #    Future Solution:
-        #      - Requires upstream fix in Docling's TableFormer
-        #      - May need manual intervention or human-in-the-loop for critical documents
-        #      - Could potentially be addressed by analyzing table.prov data BEFORE Markdown export
-        #    
-        #    Recommendation:
-        #      - For documents with critical cross-page tables, consider:
-        #        * Manual review and correction
-        #        * Alternative PDF parsers (e.g., MinerU with HTML table output)
-        #        * Pre-processing PDFs to avoid page breaks in tables
-        
-        # 🔧 TODO: Remove this patch when Docling fixes Issue #1023
-        #          (https://github.com/docling-project/docling/issues/1023)
-        #          
-        #          Docling currently exports all headers as H2 (##), losing hierarchical structure.
-        #          We use SimpleHeaderLevelFixer to infer correct levels based on content patterns.
-        #          
-        #          This is a temporary workaround and should be removed once upstream is fixed.
-        from .patches import SimpleHeaderLevelFixer
-        fixer = SimpleHeaderLevelFixer()
-        markdown_content = fixer.process(markdown_content)
-        
         # Build structured pages
         pages = self._extract_pages(docling_doc)
         
         # Build metadata
         metadata = self._build_metadata(info, markdown_content, docling_doc)
         
-        # Create PDF document
-        return PDF(
+        # Create PDF document with doc_id based on file hash
+        # This ensures idempotency: same file -> same doc_id
+        pdf_doc = PDF(
+            doc_id=metadata.md5,  # Use file hash as doc_id
             content=markdown_content,
             metadata=metadata,
             pages=pages
         )
+        
+        return pdf_doc
     
     def _extract_pages(self, docling_doc: Any) -> list[Page]:
         """
-        Extract structured page data from DoclingDocument
+        Extract pages from DoclingDocument
+        
+        Simply exports each page's Markdown content using Docling's native export.
+        No complex unit construction - just pure page content.
         
         Args:
             docling_doc: The DoclingDocument object
             
         Returns:
-            List of Page objects with structured content
+            List of Page objects with Markdown content
         """
         pages = []
         
-        # Group items by page number
-        page_items = {}
-        
-        # Process texts
-        for text_item in docling_doc.texts:
-            page_num = self._get_page_number(text_item)
-            if page_num not in page_items:
-                page_items[page_num] = {
-                    'texts': [],
-                    'tables': [],
-                    'pictures': []
-                }
-            page_items[page_num]['texts'].append({
-                'text': text_item.text if hasattr(text_item, 'text') else str(text_item),
-                'type': text_item.label if hasattr(text_item, 'label') else 'text',
-                'bbox': self._extract_bbox(text_item)
-            })
-        
-        # Process tables
-        for table_item in docling_doc.tables:
-            page_num = self._get_page_number(table_item)
-            if page_num not in page_items:
-                page_items[page_num] = {
-                    'texts': [],
-                    'tables': [],
-                    'pictures': []
-                }
-            page_items[page_num]['tables'].append({
-                'data': self._extract_table_data(table_item),
-                'bbox': self._extract_bbox(table_item)
-            })
-        
-        # Process pictures
-        for picture_item in docling_doc.pictures:
-            page_num = self._get_page_number(picture_item)
-            if page_num not in page_items:
-                page_items[page_num] = {
-                    'texts': [],
-                    'tables': [],
-                    'pictures': []
-                }
-            page_items[page_num]['pictures'].append({
-                'caption': picture_item.caption.text if hasattr(picture_item, 'caption') and picture_item.caption else None,
-                'bbox': self._extract_bbox(picture_item)
-            })
+        # Get page count from document
+        # Note: doc.pages is a dict in Docling, keys are page numbers
+        if hasattr(docling_doc, 'pages') and docling_doc.pages:
+            page_numbers = sorted(docling_doc.pages.keys())
+        else:
+            # Fallback: try to infer from items
+            page_numbers = set()
+            for item in docling_doc.texts:
+                if hasattr(item, 'prov') and item.prov:
+                    for prov in item.prov:
+                        if hasattr(prov, 'page_no'):
+                            page_numbers.add(prov.page_no)
+            page_numbers = sorted(page_numbers) if page_numbers else [1]
         
         # Create Page objects
-        for page_num in sorted(page_items.keys()):
-            items = page_items[page_num]
+        for page_num in page_numbers:
+            # Export page content using Docling's native export
+            page_content = docling_doc.export_to_markdown(page_no=page_num)
+            
             pages.append(Page(
                 page_number=page_num,
-                content=items,
-                metadata={
-                    'text_count': len(items['texts']),
-                    'table_count': len(items['tables']),
-                    'picture_count': len(items['pictures'])
-                }
+                content=page_content,
+                units=[],  # Empty - no unit construction
+                metadata={}
             ))
         
         return pages
     
-    def _get_page_number(self, item: Any) -> int:
-        """
-        Extract page number from item
-        
-        Args:
-            item: DocItem from DoclingDocument
-            
-        Returns:
-            Page number (1-based), defaults to 1 if not found
-        """
-        # Try to get page number from prov (provenance)
-        if hasattr(item, 'prov') and item.prov:
-            for prov in item.prov:
-                if hasattr(prov, 'page_no'):
-                    return prov.page_no
-        
-        # Default to page 1
-        return 1
-    
-    def _extract_bbox(self, item: Any) -> dict[str, float] | None:
-        """
-        Extract bounding box from item
-        
-        Args:
-            item: DocItem from DoclingDocument
-            
-        Returns:
-            Dict with bbox coordinates or None
-        """
-        if hasattr(item, 'prov') and item.prov:
-            for prov in item.prov:
-                if hasattr(prov, 'bbox'):
-                    bbox = prov.bbox
-                    return {
-                        'l': bbox.l,
-                        't': bbox.t,
-                        'r': bbox.r,
-                        'b': bbox.b
-                    }
-        return None
-    
-    def _extract_table_data(self, table_item: Any) -> dict[str, Any]:
-        """
-        Extract table data structure
-        
-        Args:
-            table_item: TableItem from DoclingDocument
-            
-        Returns:
-            Dict with table structure and data
-        """
-        result = {
-            'grid': None,
-            'markdown': None
-        }
-        
-        # Try to get table grid
-        if hasattr(table_item, 'data') and table_item.data:
-            result['grid'] = table_item.data.grid if hasattr(table_item.data, 'grid') else None
-        
-        # Try to export as markdown
-        if hasattr(table_item, 'export_to_markdown'):
-            result['markdown'] = table_item.export_to_markdown()
-        
-        return result
+
     
     def _build_metadata(self, info: SourceInfo, content: str, docling_doc: Any) -> DocumentMetadata:
         """

@@ -101,7 +101,7 @@ class BaseSplitter(ABC):
                 # Establish chain relationships
                 for i, unit in enumerate(units):
                     # Set source document
-                    unit.source_doc_id = document.doc_id
+                    unit.doc_id = document.doc_id
                     
                     # Set prev/next relationships
                     if i > 0:
@@ -117,7 +117,7 @@ class BaseSplitter(ABC):
             # Establish chain relationships
             for i, unit in enumerate(units):
                 # Set source document
-                unit.source_doc_id = document.doc_id
+                unit.doc_id = document.doc_id
                 
                 # Set prev/next relationships
                 if i > 0:

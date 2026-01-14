@@ -42,12 +42,18 @@ class BaseExtractor(ABC):
     
     async def aextract(self, units: Sequence, max_concurrent: int = 3) -> List[Dict]:
         """
-        Extract metadata from units (async with progress bar).
+        Extract metadata from units and write to unit.metadata (async with progress bar).
         
         This method provides:
         - Progress bar visualization (shows count: X/Y)
         - Concurrency control to avoid overwhelming the LLM API
         - Automatic batching and gathering of results
+        - Auto-write extracted metadata to units
+        
+        Metadata writing rules:
+        - 'keywords' field → unit.metadata.keywords (framework field)
+        - 'embedding_content' field → unit.embedding_content (top-level unit field)
+        - Other fields → unit.metadata.custom (business fields)
         
         Args:
             units: Sequence of units to process
@@ -80,4 +86,23 @@ class BaseExtractor(ABC):
                     return result
             
             tasks = [process_with_limit(unit) for unit in units]
-            return await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks)
+        
+        # Write results to unit.metadata and unit fields
+        for unit, result in zip(units, results):
+            if not result:
+                continue
+            
+            # Special handling: keywords field goes to unit.metadata.keywords
+            if 'keywords' in result:
+                unit.metadata.keywords = result.pop('keywords')
+            
+            # Special handling: embedding_content goes to unit.embedding_content (top-level)
+            if 'embedding_content' in result:
+                unit.embedding_content = result.pop('embedding_content')
+            
+            # All other fields go to custom
+            if result:  # If there are remaining fields
+                unit.metadata.custom.update(result)
+        
+        return results

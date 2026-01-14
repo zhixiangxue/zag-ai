@@ -76,12 +76,11 @@ class MarkdownHeaderSplitter(BaseSplitter):
         else:
             # Process document: split the document content
             content = input_data.content if hasattr(input_data, 'content') else ""
-            return self._split_content(content, document=input_data)
+            return self._split_content(content)
     
     def _split_content(
         self, 
         content: str, 
-        document=None,
         parent_unit: Optional[BaseUnit] = None
     ) -> list[TextUnit]:
         """
@@ -89,7 +88,6 @@ class MarkdownHeaderSplitter(BaseSplitter):
         
         Args:
             content: Markdown content to split
-            document: Source document (if available)
             parent_unit: Parent unit (if splitting from unit)
             
         Returns:
@@ -119,8 +117,8 @@ class MarkdownHeaderSplitter(BaseSplitter):
                         units.append(
                             self._build_unit_from_split(
                                 current_section.strip(),
-                                document,
                                 header_stack,
+                                parent_unit,
                             )
                         )
                     
@@ -148,8 +146,8 @@ class MarkdownHeaderSplitter(BaseSplitter):
             units.append(
                 self._build_unit_from_split(
                     current_section.strip(),
-                    document,
                     header_stack,
+                    parent_unit,
                 )
             )
         
@@ -159,52 +157,45 @@ class MarkdownHeaderSplitter(BaseSplitter):
                 units[i].prev_unit_id = units[i - 1].unit_id
             if i < len(units) - 1:
                 units[i].next_unit_id = units[i + 1].unit_id
-            
-            # Set source document ID
-            if document and hasattr(document, 'doc_id'):
-                units[i].source_doc_id = document.doc_id
-            elif parent_unit:
-                # Inherit from parent unit
-                units[i].source_doc_id = parent_unit.source_doc_id
-                # Also inherit context_path if parent has one
-                if parent_unit.metadata and parent_unit.metadata.context_path:
-                    # Prepend parent's context_path
-                    if units[i].metadata.context_path:
-                        units[i].metadata.context_path = f"{parent_unit.metadata.context_path}{self.header_path_separator}{units[i].metadata.context_path}"
-                    else:
-                        units[i].metadata.context_path = parent_unit.metadata.context_path
         
         return units
     
     def _build_unit_from_split(
         self,
         text_split: str,
-        document,
         header_stack: list[tuple[int, str]],
+        parent_unit: Optional[BaseUnit] = None,
     ) -> TextUnit:
         """
         Build unit from single text split
         
         Args:
             text_split: Content of this section
-            document: Source document
             header_stack: Stack of headers (including current)
+            parent_unit: Parent unit to inherit metadata from
             
         Returns:
-            TextUnit with context_path metadata
+            TextUnit with metadata
         """
         # Build context path from header stack
         context_path = self.header_path_separator.join(
             h[1] for h in header_stack
         ) if header_stack else None
         
+        # Inherit metadata from parent if exists, otherwise create new
+        if parent_unit and parent_unit.metadata:
+            # Copy parent metadata and update context_path
+            metadata = parent_unit.metadata.model_copy()
+            metadata.context_path = context_path
+        else:
+            # Create new metadata with context_path
+            metadata = UnitMetadata(context_path=context_path)
+        
         # Create unit
         unit = TextUnit(
             unit_id=self.generate_unit_id(),
             content=text_split,
-            metadata=UnitMetadata(
-                context_path=context_path
-            )
+            metadata=metadata
         )
         
         return unit

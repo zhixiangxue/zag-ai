@@ -115,10 +115,11 @@ class RecursiveMergingSplitter(BaseSplitter):
                 return []
             
             # Create a TextUnit from the document content
+            # Document metadata injection is handled by Document.split() later
             unit = TextUnit(
                 unit_id=self.generate_unit_id(),
                 content=content,
-                metadata=UnitMetadata()  # Create proper metadata
+                metadata=UnitMetadata()  # Empty metadata, will be populated by Document.split()
             )
             
             return [unit]

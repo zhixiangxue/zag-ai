@@ -30,7 +30,7 @@ class KeywordExtractor(BaseExtractor):
     """
     Keyword extractor that extracts keywords from units using LLM.
     
-    Returns keywords in list format for easy processing.
+    Stores keywords in unit.metadata.keywords for easy access.
     
     Args:
         llm_uri: LLM URI in format: provider/model
@@ -45,8 +45,8 @@ class KeywordExtractor(BaseExtractor):
         ... )
         >>> units = extractor(units)
         >>> 
-        >>> # Access results (list format)
-        >>> print(units[0].metadata["excerpt_keywords"])
+        >>> # Access results directly from metadata
+        >>> print(units[0].metadata.keywords)
         >>> # ["fixed rate", "30-year", "mortgage", "refinance", "conventional loan"]
     """
     
@@ -65,7 +65,7 @@ class KeywordExtractor(BaseExtractor):
         self._conv = chak.Conversation(llm_uri, api_key=api_key)
     
     async def _extract_from_unit(self, unit) -> Dict:
-        """Extract keywords from a single unit."""
+        """Extract keywords from a single unit and store in metadata.keywords."""
         content = unit.content if hasattr(unit, 'content') else str(unit)
         
         prompt = DEFAULT_TEMPLATE.format(
@@ -79,14 +79,14 @@ class KeywordExtractor(BaseExtractor):
             
             # Check if response is valid
             if response is None:
-                return {"excerpt_keywords": []}
+                return {"keywords": []}
             
             # response is already a KeywordList object, access keywords directly
             keywords = response.keywords[:self.num_keywords]
             
-            return {"excerpt_keywords": keywords}
+            return {"keywords": keywords}
         
         except Exception as e:
             # If extraction fails, return empty list
             print(f"Warning: Keyword extraction failed: {e}")
-            return {"excerpt_keywords": []}
+            return {"keywords": []}

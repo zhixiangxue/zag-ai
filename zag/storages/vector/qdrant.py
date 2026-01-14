@@ -413,44 +413,69 @@ class QdrantVectorStore(BaseVectorStore):
         
         # Process text-like units
         if text_like_units:
-            contents = []
-            for unit in text_like_units:
-                if isinstance(unit, TextUnit):
-                    contents.append(unit.content)
-                else:
-                    contents.append(str(unit.content))
+            # Get embedding content (fallback to content if embedding_content is None)
+            embedding_contents = [
+                unit.embedding_content if unit.embedding_content else unit.content
+                for unit in text_like_units
+            ]
             
             embedder = self._get_embedder_for_unit(text_like_units[0])
-            embeddings = embedder.embed_batch(contents)
+            embeddings = embedder.embed_batch(embedding_contents)
             
-            for unit, content, embedding in zip(text_like_units, contents, embeddings):
+            for unit, embedding in zip(text_like_units, embeddings):
+                # Build payload
+                payload = {
+                    "unit_id": unit.unit_id,
+                    "content": unit.content,
+                    "embedding_content": unit.embedding_content or unit.content,  # Fallback to content if None
+                    "unit_type": unit.unit_type.value,
+                    # Chain relationships
+                    "prev_unit_id": unit.prev_unit_id,
+                    "next_unit_id": unit.next_unit_id,
+                    "doc_id": unit.doc_id,
+                    # Semantic relationships
+                    "relations": unit.relations
+                }
+                
+                # Add metadata as nested object if exists
+                if unit.metadata:
+                    payload["metadata"] = unit.metadata.model_dump()
+                
                 points.append(PointStruct(
                     id=self._unit_id_to_qdrant_id(unit.unit_id),
                     vector=embedding,
-                    payload={
-                        **self._extract_metadata(unit),
-                        "unit_id": unit.unit_id,  # Store original ID
-                        "content": content,
-                        "unit_type": unit.unit_type.value
-                    }
+                    payload=payload
                 ))
         
         # Process image units
         if image_units:
+            # For images, use content directly for embedding
             image_contents = [unit.content for unit in image_units]
             embedder = self._get_embedder_for_unit(image_units[0])
             embeddings = embedder.embed_batch(image_contents)
             
-            for unit, content, embedding in zip(image_units, image_contents, embeddings):
+            for unit, embedding in zip(image_units, embeddings):
+                # Build payload
+                payload = {
+                    "unit_id": unit.unit_id,
+                    "content": unit.content,  # Original image bytes
+                    "unit_type": unit.unit_type.value,
+                    # Chain relationships
+                    "prev_unit_id": unit.prev_unit_id,
+                    "next_unit_id": unit.next_unit_id,
+                    "doc_id": unit.doc_id,
+                    # Semantic relationships
+                    "relations": unit.relations
+                }
+                
+                # Add metadata as nested object if exists
+                if unit.metadata:
+                    payload["metadata"] = unit.metadata.model_dump()
+                
                 points.append(PointStruct(
                     id=self._unit_id_to_qdrant_id(unit.unit_id),
                     vector=embedding,
-                    payload={
-                        **self._extract_metadata(unit),
-                        "unit_id": unit.unit_id,  # Store original ID
-                        "content": f"[Image: {unit.unit_id}]",
-                        "unit_type": unit.unit_type.value
-                    }
+                    payload=payload
                 ))
         
         # Upsert all points
@@ -683,31 +708,7 @@ class QdrantVectorStore(BaseVectorStore):
         """
         return stored_unit_id
     
-    def _extract_metadata(self, unit: BaseUnit) -> dict:
-        """
-        Extract metadata from unit for Qdrant payload
-        
-        Args:
-            unit: Unit to extract metadata from
-        
-        Returns:
-            Dictionary of metadata for Qdrant payload
-        """
-        metadata = {
-            "source_id": unit.source_doc_id or "",
-        }
-        
-        # Add context_path if available
-        if unit.metadata and unit.metadata.context_path:
-            metadata["context_path"] = unit.metadata.context_path
-        
-        # Add custom metadata (Qdrant supports arbitrary JSON)
-        if unit.metadata and unit.metadata.custom:
-            for key, value in unit.metadata.custom.items():
-                metadata[f"custom_{key}"] = value
-        
-        return metadata
-    
+
     def _point_to_unit(self, point) -> BaseUnit:
         """
         Convert Qdrant point to Unit
@@ -727,24 +728,57 @@ class QdrantVectorStore(BaseVectorStore):
         # Extract content
         content = payload.get("content", "")
         
-        # Reconstruct metadata
+        # Reconstruct metadata from nested object
         from ...schemas.base import UnitMetadata
-        metadata = UnitMetadata(
-            source_id=payload.get("source_id"),
-            context_path=payload.get("context_path")
-        )
+        metadata_dict = payload.get("metadata", {})
+        if metadata_dict:
+            metadata = UnitMetadata(**metadata_dict)
+        else:
+            metadata = UnitMetadata()
+        
+        # Restore chain relationships
+        prev_unit_id = payload.get("prev_unit_id")
+        next_unit_id = payload.get("next_unit_id")
+        doc_id = payload.get("doc_id")
+        
+        # Restore semantic relationships
+        relations = payload.get("relations", {})
         
         # Create unit based on type
-        if unit_type == "text" or unit_type == "table":
-            return TextUnit(
+        if unit_type == "text":
+            unit = TextUnit(
+                unit_id=unit_id,
+                content=content,
+                metadata=metadata
+            )
+        elif unit_type == "table":
+            # Import TableUnit dynamically
+            from ...schemas.unit import TableUnit
+            unit = TableUnit(
+                unit_id=unit_id,
+                content=content,
+                metadata=metadata
+            )
+        elif unit_type == "image":
+            # Import ImageUnit dynamically
+            from ...schemas.unit import ImageUnit
+            unit = ImageUnit(
                 unit_id=unit_id,
                 content=content,
                 metadata=metadata
             )
         else:
-            # For other types, default to TextUnit
-            return TextUnit(
+            # Fallback to TextUnit
+            unit = TextUnit(
                 unit_id=unit_id,
                 content=content,
                 metadata=metadata
             )
+        
+        # Restore relationships
+        unit.prev_unit_id = prev_unit_id
+        unit.next_unit_id = next_unit_id
+        unit.doc_id = doc_id
+        unit.relations = relations
+        
+        return unit
