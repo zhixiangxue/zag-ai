@@ -49,6 +49,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+from rich import print as rich_print
 
 console = Console()
 
@@ -62,7 +63,7 @@ LLM_MODEL = "qwen-plus"
 EMBEDDING_URI = f"bailian/{EMBEDDING_MODEL}"
 LLM_URI = f"bailian/{LLM_MODEL}"
 MEILISEARCH_URL = "http://127.0.0.1:7700"
-PDF_PATH = project_root / "examples" / "files" / "mortgage_products.pdf"
+PDF_PATH = project_root / "files" / "mortgage_products.pdf"
 CHROMA_PERSIST_DIR = project_root / "tmp" / "chroma_db"
 
 
@@ -167,7 +168,7 @@ async def step1_read_document():
         print(f"   - Picture items: {doc.metadata.custom.get('picture_items_count', 0)}")
     
     # Save markdown content to file
-    markdown_path = project_root / "tmp" / "document_content.md"
+    markdown_path = project_root / "document_content.md"
     with open(markdown_path, 'w', encoding='utf-8') as f:
         f.write(doc.content)
     print(f"\nMarkdown content saved to: {markdown_path}")
@@ -179,13 +180,10 @@ async def step2_split_document(doc):
     """Step 2: Split document into chunks"""
     print_section("🔪 Step 2: Split Document", "-")
     
-    print("Splitting with RecursiveMergingSplitter (target: 800 tokens)...")
-    base_splitter = MarkdownHeaderSplitter()
-    merger = RecursiveMergingSplitter(
-        base_splitter=base_splitter,
-        target_token_size=800
-    )
-    units = doc.split(merger)
+    print("Splitting with MarkdownHeaderSplitter | RecursiveMergingSplitter (target: 800 tokens)...")
+    # Create pipeline: first split by headers, then merge small chunks
+    pipeline = MarkdownHeaderSplitter() | RecursiveMergingSplitter(target_token_size=800)
+    units = doc.split(pipeline)
     
     # Calculate token stats
     import tiktoken
@@ -440,11 +438,14 @@ async def main():
         
         doc = await step1_read_document()
         units = await step2_split_document(doc)
-        units = await step3_process_tables(units)
-        units = await step4_extract_metadata(units)
-        vector_indexer, fulltext_indexer = await step5_build_indices(units)
-        vector_retriever, fulltext_retriever = await step6_test_retrieval(vector_indexer, fulltext_indexer)
-        final_results = await step7_test_postprocessing(vector_retriever, fulltext_retriever)
+
+        rich_print(units[0])
+
+        # units = await step3_process_tables(units)
+        # units = await step4_extract_metadata(units)
+        # vector_indexer, fulltext_indexer = await step5_build_indices(units)
+        # vector_retriever, fulltext_retriever = await step6_test_retrieval(vector_indexer, fulltext_indexer)
+        # final_results = await step7_test_postprocessing(vector_retriever, fulltext_retriever)
         
         total_time = time.time() - start_time
         
