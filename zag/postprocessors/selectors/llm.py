@@ -154,6 +154,10 @@ class LLMSelector(BasePostprocessor):
         unit_map = {unit.unit_id: unit for unit in units}
         
         for excerpt_result in excerpt_results:
+            # Skip None results
+            if excerpt_result is None:
+                continue
+            
             # Skip irrelevant units
             if not excerpt_result.is_relevant or not excerpt_result.excerpts:
                 continue

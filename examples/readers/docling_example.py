@@ -66,13 +66,8 @@ def print_document_info(doc, config_name: str):
     print("\n--- Page Structure ---")
     for i, page in enumerate(doc.pages[:3], 1):  # Show first 3 pages
         print(f"\nPage {page.page_number}:")
-        print(f"  Text items: {page.metadata.get('text_count', 0)}")
-        print(f"  Tables: {page.metadata.get('table_count', 0)}")
-        print(f"  Pictures: {page.metadata.get('picture_count', 0)}")
-        
-        # Show first few text items
-        if page.content.get('texts'):
-            print(f"  First text item type: {page.content['texts'][0].get('type', 'N/A')}")
+        print(f"  Content length: {len(page.content)} characters")
+        print(f"  Content preview: {page.content[:100]}...")
     
     # Show content preview (first 500 chars)
     print("\n--- Content Preview (first 500 chars) ---")
@@ -106,9 +101,7 @@ def save_document_content(doc, config_name: str, output_dir: Path):
         "pages_summary": [
             {
                 "page_number": page.page_number,
-                "text_count": page.metadata.get('text_count', 0),
-                "table_count": page.metadata.get('table_count', 0),
-                "picture_count": page.metadata.get('picture_count', 0),
+                "content_length": len(page.content),
             }
             for page in doc.pages
         ]
