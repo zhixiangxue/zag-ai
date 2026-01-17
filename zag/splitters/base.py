@@ -8,7 +8,7 @@ from typing import Union
 
 from rich.progress import Progress, TextColumn, BarColumn, MofNCompleteColumn, TimeElapsedColumn
 
-from ..schemas.base import BaseUnit, UnitCollection, BaseDocument
+from ..schemas import BaseUnit, UnitCollection, BaseDocument
 
 
 class BaseSplitter(ABC):

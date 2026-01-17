@@ -137,7 +137,7 @@ class OpenAIProvider(BaseProvider):
                 return len(self._tokenizer.encode(text))
             except Exception:
                 pass
-        # Fallback: rough estimation (1 token â‰ˆ 4 characters)
+        # Fallback: rough estimation (1 token â‰?4 characters)
         return len(text) // 4
     
     def _create_token_aware_batches(self, texts: list[str], max_tokens: int = 250000, max_inputs: int = 2048) -> list[list[str]]:

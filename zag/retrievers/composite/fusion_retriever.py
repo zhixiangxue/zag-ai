@@ -7,7 +7,7 @@ from enum import Enum
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..base import BaseRetriever
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class FusionMode(str, Enum):

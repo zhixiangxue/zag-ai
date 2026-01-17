@@ -10,7 +10,7 @@ from typing import Optional, Any, Union
 import tiktoken
 
 from .base import BaseSplitter
-from ..schemas.base import BaseUnit, UnitMetadata, BaseDocument
+from ..schemas import BaseUnit, UnitMetadata, BaseDocument
 from ..schemas.unit import TextUnit
 
 

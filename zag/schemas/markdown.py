@@ -2,7 +2,8 @@
 Markdown document schema
 """
 
-from .base import BaseDocument, UnitCollection
+from .document import BaseDocument
+from .unit import UnitCollection
 
 
 class Markdown(BaseDocument):

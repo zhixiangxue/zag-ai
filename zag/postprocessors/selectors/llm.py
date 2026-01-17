@@ -8,7 +8,7 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 
 from ..base import BasePostprocessor
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class ExcerptResult(BaseModel):

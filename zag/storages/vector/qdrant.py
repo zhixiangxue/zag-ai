@@ -6,7 +6,7 @@ import asyncio
 from typing import Any, Optional, Union
 
 from .base import BaseVectorStore
-from ...schemas.base import BaseUnit, UnitType
+from ...schemas import BaseUnit, UnitType
 from ...schemas.unit import TextUnit
 
 
@@ -729,7 +729,7 @@ class QdrantVectorStore(BaseVectorStore):
         content = payload.get("content", "")
         
         # Reconstruct metadata from nested object
-        from ...schemas.base import UnitMetadata
+        from ...schemas import UnitMetadata
         metadata_dict = payload.get("metadata", {})
         if metadata_dict:
             metadata = UnitMetadata(**metadata_dict)

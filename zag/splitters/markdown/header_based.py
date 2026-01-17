@@ -8,7 +8,7 @@ import re
 from typing import Optional, Union
 
 from ..base import BaseSplitter
-from ...schemas.base import BaseUnit, UnitMetadata, BaseDocument
+from ...schemas import BaseUnit, UnitMetadata, BaseDocument
 from ...schemas.unit import TextUnit
 
 

@@ -3,7 +3,7 @@ Deduplicator - remove duplicate or highly similar units
 """
 
 from ..base import BasePostprocessor
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class Deduplicator(BasePostprocessor):

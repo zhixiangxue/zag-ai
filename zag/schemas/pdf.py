@@ -5,7 +5,9 @@ PDF document schema
 from typing import Any
 from pydantic import Field
 
-from .base import PageableDocument, UnitCollection
+from .document import PageableDocument
+from .unit import UnitCollection
+from .metadata import UnitMetadata
 
 
 class PDF(PageableDocument):
@@ -46,7 +48,6 @@ class PDF(PageableDocument):
             
             # Set metadata
             if unit.metadata is None:
-                from .base import UnitMetadata
                 unit.metadata = UnitMetadata()
             
             # Inject document metadata directly (not in custom)

@@ -8,7 +8,7 @@ import tiktoken
 from typing import Optional, Union
 
 from .base import BaseSplitter
-from ..schemas.base import BaseDocument, BaseUnit, UnitMetadata
+from ..schemas import BaseDocument, BaseUnit, UnitMetadata
 from ..schemas.unit import TextUnit
 
 

@@ -12,6 +12,7 @@ from .filter_converter import (
     MilvusFilterConverter,
     convert_filter
 )
+from .logger import logger, set_level
 
 __all__ = [
     "with_spinner_progress",
@@ -25,5 +26,7 @@ __all__ = [
     "QdrantFilterConverter",
     "LanceDBFilterConverter",
     "MilvusFilterConverter",
-    "convert_filter"
+    "convert_filter",
+    "logger",
+    "set_level"
 ]

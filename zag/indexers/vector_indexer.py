@@ -9,7 +9,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from ..indexers.base import BaseIndexer
-from ..schemas.base import BaseUnit
+from ..schemas import BaseUnit
 from ..storages.vector.base import BaseVectorStore
 from ..utils.progress import with_spinner_progress
 

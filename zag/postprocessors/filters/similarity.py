@@ -3,7 +3,7 @@ Similarity filter - filter units by similarity score threshold
 """
 
 from ..base import BasePostprocessor
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class SimilarityFilter(BasePostprocessor):

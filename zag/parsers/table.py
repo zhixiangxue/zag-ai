@@ -7,7 +7,7 @@ import re
 from uuid import uuid4
 
 from ..schemas.unit import TextUnit, TableUnit
-from ..schemas.base import UnitMetadata
+from ..schemas import UnitMetadata
 
 
 class TableParser:

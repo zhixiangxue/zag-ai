@@ -5,7 +5,7 @@ Vector retriever - basic layer retriever for vector search
 from typing import Any, Optional
 
 from ..base import BaseRetriever
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 from ...schemas import RetrievalSource
 from ...storages.vector.base import BaseVectorStore
 

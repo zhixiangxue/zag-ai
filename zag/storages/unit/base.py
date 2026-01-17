@@ -5,7 +5,7 @@ Base unit store class
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class BaseUnitStore(ABC):

@@ -3,7 +3,7 @@ Token compressor - limit total token count to avoid exceeding LLM context window
 """
 
 from ..base import BasePostprocessor
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class TokenCompressor(BasePostprocessor):

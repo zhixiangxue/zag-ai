@@ -9,7 +9,7 @@ import re
 from typing import Optional
 from difflib import SequenceMatcher
 
-from ..schemas.base import BaseUnit, Page
+from ..schemas import BaseUnit, Page
 
 
 def normalize_text(text: str) -> str:

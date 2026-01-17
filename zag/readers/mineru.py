@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Optional, Literal
 
 from .base import BaseReader
-from ..schemas.base import BaseDocument, DocumentMetadata, Page
+from ..schemas import BaseDocument, DocumentMetadata, Page
 from ..schemas.pdf import PDF
 from ..utils.source import SourceUtils, FileType, SourceInfo
 from ..utils.hash import calculate_file_hash

@@ -6,7 +6,7 @@ from abc import abstractmethod
 from typing import Optional
 
 from ..base import BasePostprocessor
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class BaseReranker(BasePostprocessor):

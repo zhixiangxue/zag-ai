@@ -7,7 +7,7 @@ from typing import Any, Optional, Union
 from pathlib import Path
 
 from .base import BaseVectorStore
-from ...schemas.base import BaseUnit, UnitType
+from ...schemas import BaseUnit, UnitType
 from ...schemas.unit import TextUnit
 
 
@@ -433,7 +433,7 @@ class LanceDBVectorStore(BaseVectorStore):
             unit_type = UnitType(unit_type_str)
             
             if unit_type == UnitType.TEXT:
-                from ...schemas.base import UnitMetadata
+                from ...schemas import UnitMetadata
                 
                 metadata = UnitMetadata(
                     context_path=row.get('context_path')
@@ -521,7 +521,7 @@ class LanceDBVectorStore(BaseVectorStore):
             unit_type = UnitType(unit_type_str)
             
             if unit_type == UnitType.TEXT:
-                from ...schemas.base import UnitMetadata
+                from ...schemas import UnitMetadata
                 
                 metadata = UnitMetadata(
                     context_path=row.get('context_path')

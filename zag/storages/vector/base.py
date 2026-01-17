@@ -131,7 +131,7 @@ class BaseVectorStore(ABC):
         Raises:
             ValueError: If image_embedder is required but not provided
         """
-        from ...schemas.base import UnitType
+        from ...schemas import UnitType
         
         if self._is_multimodal:
             # Multimodal embedder handles all types

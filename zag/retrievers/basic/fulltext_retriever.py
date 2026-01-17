@@ -10,7 +10,7 @@ import meilisearch
 from meilisearch.errors import MeilisearchApiError
 
 from ..base import BaseRetriever
-from ...schemas.base import BaseUnit, UnitMetadata
+from ...schemas import BaseUnit, UnitMetadata
 from ...schemas import RetrievalSource
 
 

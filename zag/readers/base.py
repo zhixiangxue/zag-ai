@@ -4,7 +4,7 @@ Base reader class for all readers
 
 from abc import ABC, abstractmethod
 
-from ..schemas.base import BaseDocument
+from ..schemas import BaseDocument
 
 
 class BaseReader(ABC):

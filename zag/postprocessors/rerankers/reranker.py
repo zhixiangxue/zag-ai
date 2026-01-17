@@ -8,7 +8,7 @@ from .base import BaseReranker
 from .uri import parse_reranker_uri
 from .providers import create_provider, get_available_providers
 from .exceptions import RerankerError
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class Reranker(BaseReranker):

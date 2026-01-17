@@ -35,18 +35,20 @@ from .exceptions import (
 )
 
 # Core schemas
-from .schemas.base import (
-    BaseUnit, 
-    UnitRegistry, 
+from .schemas import (
+    BaseUnit,
+    UnitRegistry,
     RelationType,
     DocumentMetadata,
     UnitMetadata,
-    UnitCollection, 
+    UnitCollection,
     BaseDocument,
     Page,
     PageableDocument,
+    TextUnit,
+    TableUnit,
+    ImageUnit,
 )
-from .schemas.unit import TextUnit, TableUnit, ImageUnit
 from .schemas.pdf import PDF
 from .schemas.markdown import Markdown
 

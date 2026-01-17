@@ -6,7 +6,7 @@ import asyncio
 from typing import Any, Optional, Union
 
 from .base import BaseVectorStore
-from ...schemas.base import BaseUnit, UnitType, UnitMetadata
+from ...schemas import BaseUnit, UnitType, UnitMetadata
 from ...schemas.unit import TextUnit
 
 

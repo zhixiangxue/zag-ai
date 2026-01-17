@@ -3,7 +3,7 @@ Context augmentor - get adjacent units to provide more complete context
 """
 
 from ..base import BasePostprocessor
-from ...schemas.base import BaseUnit
+from ...schemas import BaseUnit
 
 
 class ContextAugmentor(BasePostprocessor):

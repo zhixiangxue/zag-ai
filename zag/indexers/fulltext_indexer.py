@@ -12,7 +12,7 @@ import meilisearch
 from meilisearch.errors import MeilisearchApiError
 
 from ..indexers.base import BaseIndexer
-from ..schemas.base import BaseUnit
+from ..schemas import BaseUnit
 from ..utils.progress import with_spinner_progress
 
 

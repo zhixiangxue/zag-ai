@@ -5,7 +5,7 @@ Base indexer class
 from abc import ABC, abstractmethod
 from typing import Union, Optional
 
-from ..schemas.base import BaseUnit
+from ..schemas import BaseUnit
 
 
 class BaseIndexer(ABC):

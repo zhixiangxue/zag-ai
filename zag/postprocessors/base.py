@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from ..schemas.base import BaseUnit
+from ..schemas import BaseUnit
 
 
 class BasePostprocessor(ABC):

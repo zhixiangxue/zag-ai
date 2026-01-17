@@ -11,7 +11,7 @@ from docling.datamodel.pipeline_options import PdfPipelineOptions, VlmPipelineOp
 from docling.pipeline.vlm_pipeline import VlmPipeline
 
 from .base import BaseReader
-from ..schemas.base import BaseDocument, DocumentMetadata, Page
+from ..schemas import BaseDocument, DocumentMetadata, Page
 from ..schemas.pdf import PDF
 from ..utils.source import SourceUtils, FileType, SourceInfo
 from ..utils.hash import calculate_file_hash
