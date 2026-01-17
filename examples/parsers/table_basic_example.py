@@ -14,7 +14,7 @@ from pathlib import Path
 
 from zag.parsers import TableParser
 from zag.schemas.unit import TextUnit
-from zag.schemas.base import UnitMetadata
+from zag.schemas import UnitMetadata
 
 
 # Sample TextUnit with tables

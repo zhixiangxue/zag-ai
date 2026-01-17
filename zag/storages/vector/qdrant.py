@@ -498,7 +498,7 @@ class QdrantVectorStore(BaseVectorStore):
         self,
         query: Union[str, BaseUnit],
         top_k: int = 10,
-        filter: Optional[dict[str, Any]] = None
+        filter: Optional[Union[dict[str, Any], Any]] = None
     ) -> list[BaseUnit]:
         """
         Search for similar units
@@ -506,7 +506,9 @@ class QdrantVectorStore(BaseVectorStore):
         Args:
             query: Query content (can be text or Unit)
             top_k: Number of results to return
-            filter: Optional metadata filters (Qdrant filter format)
+            filter: Optional metadata filters
+                   - dict: MongoDB-style filter (auto-converted)
+                   - Filter: Qdrant native Filter object (direct use)
             
         Returns:
             List of matching units with scores, sorted by similarity
@@ -526,12 +528,24 @@ class QdrantVectorStore(BaseVectorStore):
         else:
             raise ValueError(f"Unsupported query type: {type(query)}")
         
+        # Convert filter to Qdrant format
+        qdrant_filter = None
+        if filter:
+            if isinstance(filter, dict):
+                # MongoDB-style dict: convert to Qdrant Filter
+                from ...utils.filter_converter import QdrantFilterConverter
+                converter = QdrantFilterConverter()
+                qdrant_filter = converter.convert(filter)
+            else:
+                # Native Qdrant Filter object: use directly
+                qdrant_filter = filter
+        
         # Search in Qdrant using query_points (new API)
         response = self.client.query_points(
             collection_name=self.collection_name,
             query=query_vector,  # Dense vector for nearest search
             limit=top_k,
-            query_filter=filter  # Qdrant uses query_filter parameter
+            query_filter=qdrant_filter  # Qdrant Filter object
         )
         
         # Convert results to units
@@ -547,7 +561,7 @@ class QdrantVectorStore(BaseVectorStore):
         self,
         query: Union[str, BaseUnit],
         top_k: int = 10,
-        filter: Optional[dict[str, Any]] = None
+        filter: Optional[Union[dict[str, Any], Any]] = None
     ) -> list[BaseUnit]:
         """
         Async version of search (uses executor wrapper)
@@ -556,6 +570,8 @@ class QdrantVectorStore(BaseVectorStore):
             query: Query content
             top_k: Number of results to return
             filter: Optional metadata filters
+                   - dict: MongoDB-style filter (auto-converted)
+                   - Filter: Qdrant native Filter object (direct use)
             
         Returns:
             List of matching units

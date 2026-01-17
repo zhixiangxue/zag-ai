@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 from zag.indexers import FullTextIndexer
-from zag.schemas.base import BaseUnit, UnitMetadata
+from zag.schemas import BaseUnit, UnitMetadata
 
 
 def check_service():

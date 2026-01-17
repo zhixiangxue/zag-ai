@@ -219,7 +219,6 @@ class LanceDBFilterConverter(FilterConverter):
     """Convert filters to LanceDB format.
     
     LanceDB uses SQL-like filter syntax.
-    TODO: Implement conversion logic when LanceDB is adopted.
     """
     
     def convert(self, filter_dict: Dict[str, Any]) -> Optional[str]:
@@ -235,24 +234,274 @@ class LanceDBFilterConverter(FilterConverter):
             >>> converter = LanceDBFilterConverter()
             >>> filter_dict = {"status": "active", "age": {"$gte": 18}}
             >>> result = converter.convert(filter_dict)
-            >>> # Expected: "status = 'active' AND age >= 18"
+            >>> # Returns: "status = 'active' AND age >= 18"
         """
-        # TODO: Implement LanceDB conversion
-        # LanceDB uses SQL-like syntax: "column = value AND column >= value"
-        raise NotImplementedError("LanceDB filter converter not yet implemented")
+        if not filter_dict:
+            return None
+        
+        # Separate logical operators from field conditions
+        logical_ops = []
+        field_conditions = []
+        
+        for key, value in filter_dict.items():
+            if key in self.LOGICAL_OPS:
+                # Process logical operator
+                if key == "$or":
+                    or_conditions = [self.convert(cond) for cond in value if self.convert(cond)]
+                    if or_conditions:
+                        logical_ops.append(f"({' OR '.join(or_conditions)})")
+                elif key == "$and":
+                    and_conditions = [self.convert(cond) for cond in value if self.convert(cond)]
+                    if and_conditions:
+                        logical_ops.append(f"({' AND '.join(and_conditions)})")
+            else:
+                # Process field condition
+                mapped_key = self._map_field_name(key)
+                condition = self._convert_field_condition(mapped_key, value)
+                if condition:
+                    field_conditions.append(condition)
+        
+        # Combine all conditions
+        all_conditions = field_conditions + logical_ops
+        
+        if not all_conditions:
+            return None
+        
+        if len(all_conditions) == 1:
+            return all_conditions[0]
+        else:
+            return " AND ".join(all_conditions)
+    
+    def _map_field_name(self, key: str) -> str:
+        """Map field name from MongoDB-style to LanceDB format.
+        
+        Args:
+            key: Field name (may have metadata.custom prefix)
+            
+        Returns:
+            Mapped field name for LanceDB SQL
+            
+        Examples:
+            >>> converter = LanceDBFilterConverter()
+            >>> converter._map_field_name("metadata.custom.category")
+            'category'
+            >>> converter._map_field_name("doc_id")
+            'doc_id'
+        """
+        # Remove metadata.custom prefix if present
+        if key.startswith("metadata.custom."):
+            return key.replace("metadata.custom.", "")
+        
+        # Remove metadata prefix for other metadata fields
+        if key.startswith("metadata."):
+            return key.replace("metadata.", "")
+        
+        # Return as-is for top-level fields
+        return key
     
     def _convert_field_condition(self, key: str, value: Any) -> Optional[str]:
-        """Convert a single field condition to LanceDB format.
+        """Convert a single field condition to SQL format.
         
         Args:
             key: Field name
             value: Field value or operator dict
             
         Returns:
-            SQL-like condition string
+            SQL condition string
         """
-        # TODO: Implement field condition conversion
-        raise NotImplementedError("LanceDB field condition converter not yet implemented")
+        # Simple value (equality)
+        if not isinstance(value, dict):
+            return self._format_sql_condition(key, "=", value)
+        
+        # Operator dict
+        conditions = []
+        for op, op_value in value.items():
+            if op == "$eq":
+                conditions.append(self._format_sql_condition(key, "=", op_value))
+            elif op == "$ne":
+                conditions.append(self._format_sql_condition(key, "!=", op_value))
+            elif op == "$gt":
+                conditions.append(self._format_sql_condition(key, ">", op_value))
+            elif op == "$gte":
+                conditions.append(self._format_sql_condition(key, ">=", op_value))
+            elif op == "$lt":
+                conditions.append(self._format_sql_condition(key, "<", op_value))
+            elif op == "$lte":
+                conditions.append(self._format_sql_condition(key, "<=", op_value))
+            elif op == "$in":
+                # IN operator: field IN (val1, val2, ...)
+                if isinstance(op_value, list) and op_value:
+                    formatted_values = [self._format_sql_value(v) for v in op_value]
+                    conditions.append(f"{key} IN ({', '.join(formatted_values)})")
+            elif op == "$nin":
+                # NOT IN operator
+                if isinstance(op_value, list) and op_value:
+                    formatted_values = [self._format_sql_value(v) for v in op_value]
+                    conditions.append(f"{key} NOT IN ({', '.join(formatted_values)})")
+        
+        if not conditions:
+            return None
+        
+        if len(conditions) == 1:
+            return conditions[0]
+        else:
+            return " AND ".join(conditions)
+    
+    def _format_sql_condition(self, key: str, operator: str, value: Any) -> str:
+        """Format a SQL condition.
+        
+        Args:
+            key: Field name
+            operator: SQL operator (=, !=, >, <, etc.)
+            value: Field value
+            
+        Returns:
+            Formatted SQL condition string
+        """
+        formatted_value = self._format_sql_value(value)
+        return f"{key} {operator} {formatted_value}"
+    
+    def _format_sql_value(self, value: Any) -> str:
+        """Format a value for SQL.
+        
+        Args:
+            value: Value to format
+            
+        Returns:
+            SQL-formatted value string
+        """
+        if value is None:
+            return "NULL"
+        elif isinstance(value, bool):
+            return str(value).lower()
+        elif isinstance(value, (int, float)):
+            return str(value)
+        elif isinstance(value, str):
+            # Escape single quotes
+            escaped = value.replace("'", "''")
+            return f"'{escaped}'"
+        else:
+            # Convert to string and escape
+            escaped = str(value).replace("'", "''")
+            return f"'{escaped}'"
+
+
+class ChromaFilterConverter(FilterConverter):
+    """Convert filters to Chroma format.
+    
+    Chroma uses MongoDB-like where clause syntax, very similar to our input format.
+    Main difference: field names need to be mapped (metadata.custom.xxx → xxx).
+    """
+    
+    def convert(self, filter_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Convert filter dict to Chroma where clause.
+        
+        Args:
+            filter_dict: Filter dict using MongoDB-style syntax
+            
+        Returns:
+            Chroma where clause dict, or None if empty filter
+            
+        Examples:
+            >>> converter = ChromaFilterConverter()
+            >>> filter_dict = {"metadata.custom.category": "legal"}
+            >>> result = converter.convert(filter_dict)
+            >>> # Returns: {"category": "legal"}
+        """
+        if not filter_dict:
+            return None
+        
+        # Separate logical operators from field conditions
+        logical_ops = {}
+        field_conditions = {}
+        
+        for key, value in filter_dict.items():
+            if key in self.LOGICAL_OPS:
+                logical_ops[key] = value
+            else:
+                # Map field name and store condition
+                mapped_key = self._map_field_name(key)
+                field_conditions[mapped_key] = value
+        
+        # Handle field conditions
+        result = None
+        if field_conditions:
+            if len(field_conditions) == 1:
+                # Single field: return as-is
+                result = field_conditions
+            else:
+                # Multiple fields: wrap in $and
+                result = {"$and": [{k: v} for k, v in field_conditions.items()]}
+        
+        # Handle logical operators
+        for op_key, op_value in logical_ops.items():
+            if isinstance(op_value, list):
+                # Recursively convert each condition in the list
+                converted_conditions = [self.convert(cond) for cond in op_value if self.convert(cond)]
+                if result:
+                    # Merge with existing result
+                    if "$and" in result:
+                        result["$and"].append({op_key: converted_conditions})
+                    else:
+                        result = {"$and": [result, {op_key: converted_conditions}]}
+                else:
+                    result = {op_key: converted_conditions}
+            else:
+                # Single condition
+                converted = self.convert(op_value)
+                if converted:
+                    if result:
+                        if "$and" in result:
+                            result["$and"].append({op_key: converted})
+                        else:
+                            result = {"$and": [result, {op_key: converted}]}
+                    else:
+                        result = {op_key: converted}
+        
+        return result
+    
+    def _map_field_name(self, key: str) -> str:
+        """Map field name from MongoDB-style to Chroma format.
+        
+        Args:
+            key: Field name (may have metadata.custom prefix)
+            
+        Returns:
+            Mapped field name for Chroma
+            
+        Examples:
+            >>> converter = ChromaFilterConverter()
+            >>> converter._map_field_name("metadata.custom.category")
+            'category'
+            >>> converter._map_field_name("doc_id")
+            'doc_id'
+        """
+        # Remove metadata.custom prefix if present
+        if key.startswith("metadata.custom."):
+            return key.replace("metadata.custom.", "")
+        
+        # Remove metadata prefix for other metadata fields
+        if key.startswith("metadata."):
+            return key.replace("metadata.", "")
+        
+        # Return as-is for top-level fields
+        return key
+    
+    def _convert_field_condition(self, key: str, value: Any) -> Any:
+        """Convert a single field condition.
+        
+        Note: Chroma uses the same operator syntax as MongoDB,
+        so we only need to map field names, not operators.
+        
+        Args:
+            key: Field name
+            value: Field value or operator dict
+            
+        Returns:
+            Value as-is (Chroma uses same syntax)
+        """
+        # Chroma uses same operator syntax, no conversion needed
+        return value
 
 
 class MilvusFilterConverter(FilterConverter):
@@ -303,7 +552,7 @@ def convert_filter(filter_dict: Dict[str, Any], engine: str = "qdrant") -> Any:
     
     Args:
         filter_dict: Filter dict using MongoDB-style syntax
-        engine: Vector store engine type ("qdrant", "lancedb", "milvus", etc.)
+        engine: Vector store engine type ("qdrant", "chroma", "lancedb", "milvus")
         
     Returns:
         Target vector store's filter object or None
@@ -312,11 +561,17 @@ def convert_filter(filter_dict: Dict[str, Any], engine: str = "qdrant") -> Any:
         >>> # For Qdrant (default)
         >>> filter = convert_filter({"status": "active", "age": {"$gte": 18}})
         
+        >>> # For Chroma
+        >>> filter = convert_filter({"status": "active"}, engine="chroma")
+        
         >>> # For LanceDB (future)
         >>> filter = convert_filter({"status": "active"}, engine="lancedb")
     """
     if engine == "qdrant":
         converter = QdrantFilterConverter()
+        return converter.convert(filter_dict)
+    elif engine == "chroma":
+        converter = ChromaFilterConverter()
         return converter.convert(filter_dict)
     elif engine == "lancedb":
         converter = LanceDBFilterConverter()
@@ -325,7 +580,7 @@ def convert_filter(filter_dict: Dict[str, Any], engine: str = "qdrant") -> Any:
         converter = MilvusFilterConverter()
         return converter.convert(filter_dict)
     else:
-        raise ValueError(f"Unsupported engine: {engine}. Supported: qdrant, lancedb, milvus")
+        raise ValueError(f"Unsupported engine: {engine}. Supported: qdrant, chroma, lancedb, milvus")
 
 
 # ============================================

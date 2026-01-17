@@ -244,15 +244,20 @@ class LanceDBVectorStore(BaseVectorStore):
             if unit.metadata.context_path:
                 metadata['context_path'] = unit.metadata.context_path
             
-            # Store custom fields with type preservation
+            # Add page_numbers if available
+            if unit.metadata.page_numbers:
+                # Store as comma-separated string (SQL doesn't support lists well)
+                metadata['page_numbers'] = ",".join(map(str, unit.metadata.page_numbers))
+            
+            # Store custom fields directly (preserve original structure)
             if unit.metadata.custom:
                 for key, value in unit.metadata.custom.items():
                     # Preserve native types for SQL filtering
                     if isinstance(value, (str, int, float, bool)) or value is None:
-                        metadata[f'custom_{key}'] = value
+                        metadata[key] = value
                     else:
                         # Convert complex types to string
-                        metadata[f'custom_{key}'] = str(value)
+                        metadata[key] = str(value)
         
         return metadata
     
@@ -354,22 +359,23 @@ class LanceDBVectorStore(BaseVectorStore):
             top_k: Number of results to return
             filter: Optional metadata filters
                    - str: SQL WHERE clause (e.g., "price > 1000 AND brand = 'Nike'")
-                   - dict: Simple key-value filters (converted to SQL WHERE)
+                   - dict: MongoDB-style filter (auto-converted to SQL WHERE)
             
         Returns:
             List of matching units with scores, sorted by similarity
             
         Examples:
-            >>> # SQL WHERE clause (recommended for complex filters)
+            >>> # MongoDB-style filter (recommended)
             >>> results = store.search(
             ...     "running shoes",
-            ...     filter="(custom_brand IN ('Nike', 'Adidas')) AND (custom_price < 2000)"
+            ...     filter={"metadata.custom.brand": {"$in": ["Nike", "Adidas"]}, 
+            ...             "metadata.custom.price": {"$lt": 2000}}
             ... )
             >>> 
-            >>> # Simple dict filter (for basic equality)
+            >>> # SQL WHERE clause (advanced)
             >>> results = store.search(
             ...     "running shoes",
-            ...     filter={"custom_brand": "Nike"}
+            ...     filter="(brand IN ('Nike', 'Adidas')) AND (price < 2000)"
             ... )
         """
         if self._table is None:
@@ -399,28 +405,11 @@ class LanceDBVectorStore(BaseVectorStore):
                 # Direct SQL WHERE clause - most powerful!
                 search_query = search_query.where(filter)
             elif isinstance(filter, dict):
-                # Convert dict to SQL WHERE clause
-                where_clauses = []
-                for key, value in filter.items():
-                    if isinstance(value, str):
-                        # String values need quotes and escape
-                        escaped_value = value.replace("'", "''")
-                        where_clauses.append(f"{key} = '{escaped_value}'")
-                    elif isinstance(value, bool):
-                        # Boolean values
-                        where_clauses.append(f"{key} = {str(value).lower()}")
-                    elif isinstance(value, (int, float)):
-                        # Numeric values
-                        where_clauses.append(f"{key} = {value}")
-                    elif value is None:
-                        # NULL check
-                        where_clauses.append(f"{key} IS NULL")
-                    else:
-                        # Other types, convert to string
-                        where_clauses.append(f"{key} = '{str(value)}'")
-                
-                if where_clauses:
-                    where_clause = " AND ".join(where_clauses)
+                # Convert MongoDB-style filter to SQL WHERE clause
+                from ...utils.filter_converter import LanceDBFilterConverter
+                converter = LanceDBFilterConverter()
+                where_clause = converter.convert(filter)
+                if where_clause:
                     search_query = search_query.where(where_clause)
         
         # Execute search
@@ -465,7 +454,7 @@ class LanceDBVectorStore(BaseVectorStore):
         Args:
             query: Query content (can be text or Unit)
             top_k: Number of results to return
-            filter: Optional metadata filters
+            filter: Optional metadata filters (MongoDB-style dict)
             
         Returns:
             List of matching units, sorted by similarity

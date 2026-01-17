@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from zag.splitters import MarkdownHeaderSplitter, TextSplitter, RecursiveMergingSplitter
 from zag.schemas.markdown import Markdown
-from zag.schemas.base import DocumentMetadata
+from zag.schemas import DocumentMetadata
 
 
 def create_test_doc():

@@ -29,7 +29,7 @@ def test_markdown_header_splitter():
     
     # Create markdown document
     from zag.schemas.markdown import Markdown
-    from zag.schemas.base import DocumentMetadata
+    from zag.schemas import DocumentMetadata
     
     doc = Markdown(
         content=markdown_content,

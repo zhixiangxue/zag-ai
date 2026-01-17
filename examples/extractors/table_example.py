@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from zag.extractors import TableExtractor
 from zag.parsers import TableParser
 from zag.schemas.unit import TextUnit, TableUnit
-from zag.schemas.base import UnitMetadata
+from zag.schemas import UnitMetadata
 
 # Load environment variables
 load_dotenv()

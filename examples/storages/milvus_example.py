@@ -35,7 +35,7 @@ References:
 """
 
 from zag.schemas.unit import TextUnit
-from zag.schemas.base import UnitMetadata
+from zag.schemas import UnitMetadata
 from zag.storages.vector import MilvusVectorStore
 from zag import Embedder
 

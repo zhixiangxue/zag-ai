@@ -11,7 +11,7 @@ from ..schemas import BaseDocument, DocumentMetadata
 from ..schemas.pdf import PDF
 from ..schemas.markdown import Markdown
 from ..utils.source import SourceUtils, FileType, SourceInfo
-from ..utils.hash import calculate_file_hash
+from ..utils.hash import calculate_file_hash, calculate_string_hash
 
 
 class MarkItDownReader(BaseReader):
@@ -99,12 +99,14 @@ class MarkItDownReader(BaseReader):
         
         if info.file_type == FileType.PDF:
             return PDF(
+                doc_id=metadata.md5,  # Use file hash as document ID
                 content=content,
                 metadata=metadata
             )
         else:
             # All other types converted to Markdown
             return Markdown(
+                doc_id=metadata.md5,  # Use file hash as document ID
                 content=content,
                 metadata=metadata
             )
@@ -120,7 +122,7 @@ class MarkItDownReader(BaseReader):
         Returns:
             DocumentMetadata object
         """
-        # Get file size and calculate hash for local files
+        # Get file size and calculate hash
         file_size = None
         file_hash = None
         
@@ -136,11 +138,8 @@ class MarkItDownReader(BaseReader):
                     f"Failed to calculate file hash for {info.source}: {e}"
                 )
         else:
-            # For URL sources, we cannot calculate file hash
-            raise ValueError(
-                "File hash calculation not supported for URL sources. "
-                "Please download the file first and read from local path."
-            )
+            # For URL sources, use URL string hash as document ID
+            file_hash = calculate_string_hash(info.source)
         
         return DocumentMetadata(
             source=info.source,

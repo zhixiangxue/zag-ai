@@ -22,7 +22,7 @@ from pathlib import Path
 
 from zag.splitters import MarkdownHeaderSplitter, TextSplitter, RecursiveMergingSplitter
 from zag.schemas.markdown import Markdown
-from zag.schemas.base import DocumentMetadata
+from zag.schemas import DocumentMetadata
 
 
 def print_separator(title: str):

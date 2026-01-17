@@ -7,6 +7,38 @@ Provides fast file hashing for document integrity verification and deduplication
 from pathlib import Path
 
 
+def calculate_string_hash(text: str) -> str:
+    """
+    Calculate xxhash of a string
+    
+    Args:
+        text: String to hash
+        
+    Returns:
+        Hexadecimal hash string
+        
+    Raises:
+        ImportError: If xxhash is not installed
+        
+    Example:
+        >>> hash_value = calculate_string_hash("https://example.com/file.pdf")
+        >>> print(hash_value)  # e.g., "a1b2c3d4e5f6..."
+    """
+    try:
+        import xxhash
+    except ImportError:
+        raise ImportError(
+            "xxhash is required for hashing. "
+            "Install it with: pip install xxhash"
+        )
+    
+    # Use xxh64 for good balance of speed and collision resistance
+    hash_func = xxhash.xxh64()
+    hash_func.update(text.encode('utf-8'))
+    
+    return hash_func.hexdigest()
+
+
 def calculate_file_hash(file_path: Path | str, chunk_size: int = 8192) -> str:
     """
     Calculate xxhash of a file

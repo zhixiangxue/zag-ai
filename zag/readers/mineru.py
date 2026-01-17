@@ -11,7 +11,7 @@ from .base import BaseReader
 from ..schemas import BaseDocument, DocumentMetadata, Page
 from ..schemas.pdf import PDF
 from ..utils.source import SourceUtils, FileType, SourceInfo
-from ..utils.hash import calculate_file_hash
+from ..utils.hash import calculate_file_hash, calculate_string_hash
 
 
 class MinerUReader(BaseReader):
@@ -285,6 +285,7 @@ class MinerUReader(BaseReader):
         
         # Create PDF document
         return PDF(
+            doc_id=metadata.md5,  # Use file hash as document ID
             content=md_content,
             metadata=metadata,
             pages=pages
@@ -356,9 +357,17 @@ class MinerUReader(BaseReader):
         pages = []
         for page_num in sorted(page_items.keys()):
             items = page_items[page_num]
+            
+            # Build page content as simple text representation
+            page_text_parts = []
+            for text_item in items["texts"]:
+                page_text_parts.append(text_item.get("text", ""))
+            page_content = "\n\n".join(page_text_parts)
+            
             pages.append(Page(
                 page_number=page_num,
-                content=items,
+                content=page_content,  # String content
+                units=[],  # Empty units list
                 metadata={
                     "text_count": len(items["texts"]),
                     "table_count": len(items["tables"]),
@@ -406,7 +415,7 @@ class MinerUReader(BaseReader):
         Returns:
             DocumentMetadata object
         """
-        # Get file size and calculate hash for local files
+        # Get file size and calculate hash
         file_size = None
         file_hash = None
         
@@ -422,11 +431,8 @@ class MinerUReader(BaseReader):
                     f"Failed to calculate file hash for {info.source}: {e}"
                 )
         else:
-            # For URL sources, we cannot calculate file hash
-            raise ValueError(
-                "File hash calculation not supported for URL sources. "
-                "Please download the file first and read from local path."
-            )
+            # For URL sources, use URL string hash as document ID
+            file_hash = calculate_string_hash(info.source)
         
         return DocumentMetadata(
             source=info.source,

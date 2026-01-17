@@ -20,7 +20,7 @@ import time
 
 from zag.indexers import FullTextIndexer
 from zag.retrievers import FullTextRetriever, QueryFusionRetriever, FusionMode
-from zag.schemas.base import BaseUnit, UnitMetadata
+from zag.schemas import BaseUnit, UnitMetadata
 
 
 def check_service():

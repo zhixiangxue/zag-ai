@@ -65,10 +65,7 @@ def print_document_info(doc, config_name: str):
         print(f"  Text items: {page.metadata.get('text_count', 0)}")
         print(f"  Tables: {page.metadata.get('table_count', 0)}")
         print(f"  Images: {page.metadata.get('image_count', 0)}")
-        
-        # Show first few text items
-        if page.content.get('texts'):
-            print(f"  First text item type: {page.content['texts'][0].get('type', 'N/A')}")
+        print(f"  Content preview: {page.content[:100]}...")  # Show first 100 chars of page content
     
     # Show content preview (first 500 chars)
     print("\n--- Content Preview (first 500 chars) ---")

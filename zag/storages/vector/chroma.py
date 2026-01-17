@@ -384,20 +384,25 @@ class ChromaVectorStore(BaseVectorStore):
             Dictionary of metadata (Chroma compatible)
         """
         metadata = {
-            "unit_type": unit.unit_type.value,  # Store enum value as string
-            "source_doc_id": unit.source_doc_id or "",
+            "unit_type": unit.unit_type.value,
+            "doc_id": unit.doc_id or "",
         }
         
         # Add context_path if available
         if unit.metadata and unit.metadata.context_path:
             metadata["context_path"] = unit.metadata.context_path
         
-        # Add custom metadata (only Chroma-compatible types)
+        # Add page_numbers if available
+        if unit.metadata and unit.metadata.page_numbers:
+            # Store as comma-separated string (Chroma doesn't support lists well)
+            metadata["page_numbers"] = ",".join(map(str, unit.metadata.page_numbers))
+        
+        # Add custom metadata directly (preserve original structure)
         if unit.metadata and unit.metadata.custom:
             for key, value in unit.metadata.custom.items():
                 # Chroma metadata values must be str, int, float, or bool
                 if isinstance(value, (str, int, float, bool)):
-                    metadata[f"custom_{key}"] = value
+                    metadata[key] = value
         
         return metadata
     
@@ -418,7 +423,7 @@ class ChromaVectorStore(BaseVectorStore):
         Args:
             query: Query content (can be text string or Unit)
             top_k: Number of results to return
-            filter: Optional metadata filters (Chroma where clause)
+            filter: Optional metadata filters (MongoDB-style dict)
             
         Returns:
             List of matching units, sorted by similarity
@@ -446,11 +451,18 @@ class ChromaVectorStore(BaseVectorStore):
         # Embed the query using appropriate embedder
         query_embedding = embedder.embed(query_content)
         
+        # Convert filter to Chroma format
+        chroma_filter = None
+        if filter:
+            from ...utils.filter_converter import ChromaFilterConverter
+            converter = ChromaFilterConverter()
+            chroma_filter = converter.convert(filter)
+        
         # Search in Chroma
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
-            where=filter
+            where=chroma_filter
         )
         
         # Convert results to Units
@@ -474,8 +486,8 @@ class ChromaVectorStore(BaseVectorStore):
                 if 'context_path' in metadata:
                     unit.metadata.context_path = metadata['context_path']
                 
-                if 'source_doc_id' in metadata and metadata['source_doc_id']:
-                    unit.source_doc_id = metadata['source_doc_id']
+                if 'doc_id' in metadata and metadata['doc_id']:
+                    unit.doc_id = metadata['doc_id']
                 
                 # Attach similarity score
                 # Chroma uses cosine distance by default (lower is more similar)
@@ -501,7 +513,7 @@ class ChromaVectorStore(BaseVectorStore):
         Args:
             query: Query content (can be text string or Unit)
             top_k: Number of results to return
-            filter: Optional metadata filters
+            filter: Optional metadata filters (MongoDB-style dict)
             
         Returns:
             List of matching units, sorted by similarity
@@ -565,8 +577,8 @@ class ChromaVectorStore(BaseVectorStore):
                 if 'context_path' in metadata:
                     unit.metadata.context_path = metadata['context_path']
                 
-                if 'source_doc_id' in metadata and metadata['source_doc_id']:
-                    unit.source_doc_id = metadata['source_doc_id']
+                if 'doc_id' in metadata and metadata['doc_id']:
+                    unit.doc_id = metadata['doc_id']
                 
                 units.append(unit)
         

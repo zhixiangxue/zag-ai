@@ -26,7 +26,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich import box
 
 from zag.schemas.unit import TextUnit
-from zag.schemas.base import UnitMetadata
+from zag.schemas import UnitMetadata
 from zag.storages.vector import ChromaVectorStore, QdrantVectorStore, LanceDBVectorStore, MilvusVectorStore
 from zag import Embedder
 

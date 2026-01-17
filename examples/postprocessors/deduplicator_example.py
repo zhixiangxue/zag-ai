@@ -135,7 +135,7 @@ def example_with_metadata():
     print("Example 4: Units with Metadata")
     print("="*70)
     
-    from zag.schemas.base import UnitMetadata
+    from zag.schemas import UnitMetadata
     
     units = [
         TextUnit(

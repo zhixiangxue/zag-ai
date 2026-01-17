@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from zag.schemas.unit import TextUnit
-from zag.schemas.base import UnitMetadata
+from zag.schemas import UnitMetadata
 from zag.storages.vector import ChromaVectorStore
 from zag import Embedder
 
