@@ -42,6 +42,8 @@ import os
 import sys
 import time
 import asyncio
+import tempfile
+import uuid
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -60,6 +62,11 @@ console = Console()
 # Load environment
 load_dotenv()
 
+# Generate unique run ID and create run directory
+RUN_ID = uuid.uuid4().hex[:8]
+RUN_DIR = Path(tempfile.gettempdir()) / f"rag_example_{RUN_ID}"
+RUN_DIR.mkdir(parents=True, exist_ok=True)
+
 # Configuration
 API_KEY = os.getenv("BAILIAN_API_KEY")
 EMBEDDING_MODEL = "text-embedding-v3"
@@ -68,7 +75,7 @@ EMBEDDING_URI = f"bailian/{EMBEDDING_MODEL}"
 LLM_URI = f"bailian/{LLM_MODEL}"
 MEILISEARCH_URL = "http://127.0.0.1:7700"
 PDF_PATH = project_root / "files" / "mortgage_products.pdf"
-CHROMA_PERSIST_DIR = project_root / "tmp" / "chroma_db"
+CHROMA_PERSIST_DIR = RUN_DIR / "chroma_db"
 
 
 def print_section(title: str, char: str = "="):
@@ -180,7 +187,7 @@ async def step1_read_document():
             f"   - Picture items: {doc.metadata.custom.get('picture_items_count', 0)}")
 
     # Save markdown content to file
-    markdown_path = project_root / "document_content.md"
+    markdown_path = RUN_DIR / "document_content.md"
     with open(markdown_path, 'w', encoding='utf-8') as f:
         f.write(doc.content)
     print(f"\nMarkdown content saved to: {markdown_path}")
@@ -265,7 +272,7 @@ async def step5_build_indices(units):
 
     # Save units to JSON for inspection
     import json
-    units_json_path = project_root / "tmp" / "units_debug.json"
+    units_json_path = RUN_DIR / "units_debug.json"
     units_data = [unit.model_dump(mode='json') for unit in units]
 
     with open(units_json_path, 'w', encoding='utf-8') as f:
@@ -420,7 +427,7 @@ async def step7_test_postprocessing(vector_retriever, fulltext_retriever):
 
     # Create postprocessing chain
     postprocessor = SimilarityFilter(threshold=0.6) | Deduplicator(
-        strategy="exact") | ContextAugmentor(window_size=1),
+        strategy="exact") | ContextAugmentor(window_size=1)
 
     print("\nApplying postprocessing chain:")
     print("   1. SimilarityFilter(threshold=0.6)")
@@ -446,6 +453,9 @@ async def main():
     print("\n" + "=" * 70)
     print("  🚀 E2E RAG Pipeline Test")
     print("=" * 70)
+    print(f"\n📁 Run ID: {RUN_ID}")
+    print(f"📂 Working directory: {RUN_DIR}")
+    print(f"   All output files will be saved here.\n")
 
     # Check prerequisites
     if not check_prerequisites():
@@ -461,11 +471,11 @@ async def main():
 
         rich_print(units[0])
 
-        # units = await step3_process_tables(units)
-        # units = await step4_extract_metadata(units)
-        # vector_indexer, fulltext_indexer = await step5_build_indices(units)
-        # vector_retriever, fulltext_retriever = await step6_test_retrieval(vector_indexer, fulltext_indexer)
-        # final_results = await step7_test_postprocessing(vector_retriever, fulltext_retriever)
+        units = await step3_process_tables(units)
+        units = await step4_extract_metadata(units)
+        vector_indexer, fulltext_indexer = await step5_build_indices(units)
+        vector_retriever, fulltext_retriever = await step6_test_retrieval(vector_indexer, fulltext_indexer)
+        final_results = await step7_test_postprocessing(vector_retriever, fulltext_retriever)
 
         total_time = time.time() - start_time
 
@@ -489,6 +499,7 @@ async def main():
 
         print("\n" + "=" * 70)
         print("✅ Test completed successfully!")
+        print(f"📂 All outputs saved to: {RUN_DIR}")
         print("=" * 70)
 
     except Exception as e:
