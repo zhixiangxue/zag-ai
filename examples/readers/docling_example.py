@@ -335,12 +335,20 @@ def main():
     # Get Bailian API key from environment variable
     bailian_api_key = os.getenv("BAILIAN_API_KEY")
     
+    # Detect GPU availability
+    import torch
+    gpu_status = "[yellow]Using CPU[/yellow]"
+    if torch.cuda.is_available():
+        gpu_status = "[green]✓ CUDA Available[/green]"
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        gpu_status = "[cyan]✓ MPS Available (Apple GPU)[/cyan]"
+    
     # Print header
     print(Panel.fit(
         "[bold green]DoclingReader Test Suite[/bold green]\n" +
         f"PDF: {pdf_path}\n" +
         f"Output: {output_dir.absolute()}\n" +
-        f"GPU: {'[green]✓ CUDA Available[/green]' if bailian_api_key else '[yellow]Using CPU[/yellow]'}\n" +
+        f"GPU: {gpu_status}\n" +
         f"API Key: {'[green]✓ Found[/green]' if bailian_api_key else '[yellow]Not Found (VLM test will be skipped)[/yellow]'}",
         title="⚡ Test Configuration",
         border_style="blue"

@@ -389,8 +389,6 @@ class QdrantVectorStore(BaseVectorStore):
         Args:
             units: Single unit or list of units to store (can be mixed types)
         """
-        from qdrant_client.models import PointStruct
-        
         # Normalize input to list format
         if isinstance(units, BaseUnit):
             units = [units]
@@ -398,91 +396,176 @@ class QdrantVectorStore(BaseVectorStore):
         if not units:
             return
         
-        # Group units by type for efficient batch embedding
-        text_like_units = []  # TextUnit and TableUnit
-        image_units = []      # ImageUnit
+        # Group units by type for separate processing
+        text_units = []
+        table_units = []
+        image_units = []
         
         for unit in units:
-            if unit.unit_type == UnitType.IMAGE:
+            if unit.unit_type == UnitType.TEXT:
+                text_units.append(unit)
+            elif unit.unit_type == UnitType.TABLE:
+                table_units.append(unit)
+            elif unit.unit_type == UnitType.IMAGE:
                 image_units.append(unit)
-            else:
-                text_like_units.append(unit)
         
-        # Prepare points for upsert
+        # Process each type separately and collect points
         points = []
         
-        # Process text-like units
-        if text_like_units:
-            # Get embedding content (fallback to content if embedding_content is None)
-            embedding_contents = [
-                unit.embedding_content if unit.embedding_content else unit.content
-                for unit in text_like_units
-            ]
-            
-            embedder = self._get_embedder_for_unit(text_like_units[0])
-            embeddings = embedder.embed_batch(embedding_contents)
-            
-            for unit, embedding in zip(text_like_units, embeddings):
-                # Build payload
-                payload = {
-                    "unit_id": unit.unit_id,
-                    "content": unit.content,
-                    "embedding_content": unit.embedding_content or unit.content,  # Fallback to content if None
-                    "unit_type": unit.unit_type.value,
-                    # Chain relationships
-                    "prev_unit_id": unit.prev_unit_id,
-                    "next_unit_id": unit.next_unit_id,
-                    "doc_id": unit.doc_id,
-                    # Semantic relationships
-                    "relations": unit.relations
-                }
-                
-                # Add metadata as nested object if exists
-                if unit.metadata:
-                    payload["metadata"] = unit.metadata.model_dump()
-                
-                points.append(PointStruct(
-                    id=self._unit_id_to_qdrant_id(unit.unit_id),
-                    vector=embedding,
-                    payload=payload
-                ))
+        if text_units:
+            points.extend(self._process_text_units(text_units))
         
-        # Process image units
+        if table_units:
+            points.extend(self._process_table_units(table_units))
+        
         if image_units:
-            # For images, use content directly for embedding
-            image_contents = [unit.content for unit in image_units]
-            embedder = self._get_embedder_for_unit(image_units[0])
-            embeddings = embedder.embed_batch(image_contents)
-            
-            for unit, embedding in zip(image_units, embeddings):
-                # Build payload
-                payload = {
-                    "unit_id": unit.unit_id,
-                    "content": unit.content,  # Original image bytes
-                    "unit_type": unit.unit_type.value,
-                    # Chain relationships
-                    "prev_unit_id": unit.prev_unit_id,
-                    "next_unit_id": unit.next_unit_id,
-                    "doc_id": unit.doc_id,
-                    # Semantic relationships
-                    "relations": unit.relations
-                }
-                
-                # Add metadata as nested object if exists
-                if unit.metadata:
-                    payload["metadata"] = unit.metadata.model_dump()
-                
-                points.append(PointStruct(
-                    id=self._unit_id_to_qdrant_id(unit.unit_id),
-                    vector=embedding,
-                    payload=payload
-                ))
+            points.extend(self._process_image_units(image_units))
         
         # Upsert all points
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=points
-        )
+        if points:
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=points
+            )
+    
+    def _process_text_units(self, text_units: list[TextUnit]) -> list:
+        """
+        Process TextUnits: embed and build points
+        
+        Args:
+            text_units: List of TextUnits
+            
+        Returns:
+            List of PointStruct objects
+        """
+        from qdrant_client.models import PointStruct
+        
+        # Batch embedding
+        embedding_contents = [
+            unit.embedding_content if unit.embedding_content else unit.content
+            for unit in text_units
+        ]
+        embedder = self._get_embedder_for_unit(text_units[0])
+        embeddings = embedder.embed_batch(embedding_contents)
+        
+        points = []
+        for unit, embedding in zip(text_units, embeddings):
+            payload = {
+                "unit_id": unit.unit_id,
+                "content": unit.content,
+                "embedding_content": unit.embedding_content or unit.content,
+                "unit_type": unit.unit_type.value,
+                "prev_unit_id": unit.prev_unit_id,
+                "next_unit_id": unit.next_unit_id,
+                "doc_id": unit.doc_id,
+                "relations": unit.relations
+            }
+            
+            if unit.metadata:
+                payload["metadata"] = unit.metadata.model_dump()
+            
+            points.append(PointStruct(
+                id=self._unit_id_to_qdrant_id(unit.unit_id),
+                vector=embedding,
+                payload=payload
+            ))
+        
+        return points
+    
+    def _process_table_units(self, table_units: list) -> list:
+        """
+        Process TableUnits: embed and build points with table-specific fields
+        
+        Args:
+            table_units: List of TableUnits
+            
+        Returns:
+            List of PointStruct objects
+        """
+        from qdrant_client.models import PointStruct
+        
+        # Batch embedding
+        embedding_contents = [
+            unit.embedding_content if unit.embedding_content else unit.content
+            for unit in table_units
+        ]
+        embedder = self._get_embedder_for_unit(table_units[0])
+        embeddings = embedder.embed_batch(embedding_contents)
+        
+        points = []
+        for unit, embedding in zip(table_units, embeddings):
+            payload = {
+                "unit_id": unit.unit_id,
+                "content": unit.content,  # Markdown table
+                "embedding_content": unit.embedding_content or unit.content,
+                "unit_type": unit.unit_type.value,
+                "prev_unit_id": unit.prev_unit_id,
+                "next_unit_id": unit.next_unit_id,
+                "doc_id": unit.doc_id,
+                "relations": unit.relations,
+                # TableUnit-specific: caption (may be None)
+                "caption": unit.caption
+            }
+            
+            # Serialize DataFrame if exists
+            if hasattr(unit, 'df') and unit.df is not None:
+                try:
+                    payload["df_data"] = unit.df.to_dict(orient='records')
+                    payload["df_columns"] = list(unit.df.columns)
+                except Exception:
+                    # If serialization fails, skip (content will be used as fallback)
+                    pass
+            
+            if unit.metadata:
+                payload["metadata"] = unit.metadata.model_dump()
+            
+            points.append(PointStruct(
+                id=self._unit_id_to_qdrant_id(unit.unit_id),
+                vector=embedding,
+                payload=payload
+            ))
+        
+        return points
+    
+    def _process_image_units(self, image_units: list) -> list:
+        """
+        Process ImageUnits: embed and build points
+        
+        Args:
+            image_units: List of ImageUnits
+            
+        Returns:
+            List of PointStruct objects
+        """
+        from qdrant_client.models import PointStruct
+        
+        # Batch embedding (use content directly for images)
+        image_contents = [unit.content for unit in image_units]
+        embedder = self._get_embedder_for_unit(image_units[0])
+        embeddings = embedder.embed_batch(image_contents)
+        
+        points = []
+        for unit, embedding in zip(image_units, embeddings):
+            payload = {
+                "unit_id": unit.unit_id,
+                "content": unit.content,  # Image bytes
+                "unit_type": unit.unit_type.value,
+                "prev_unit_id": unit.prev_unit_id,
+                "next_unit_id": unit.next_unit_id,
+                "doc_id": unit.doc_id,
+                "relations": unit.relations
+            }
+            
+            if unit.metadata:
+                payload["metadata"] = unit.metadata.model_dump()
+            
+            points.append(PointStruct(
+                id=self._unit_id_to_qdrant_id(unit.unit_id),
+                vector=embedding,
+                payload=payload
+            ))
+        
+        return points
     
     async def aadd(self, units: Union[BaseUnit, list[BaseUnit]]) -> None:
         """
@@ -770,9 +853,23 @@ class QdrantVectorStore(BaseVectorStore):
         elif unit_type == "table":
             # Import TableUnit dynamically
             from ...schemas.unit import TableUnit
+            
+            # Restore DataFrame if exists
+            df = None
+            if "df_data" in payload and "df_columns" in payload:
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame(payload["df_data"])
+                except Exception:
+                    # If restoration fails, df remains None (fallback to content)
+                    pass
+            
             unit = TableUnit(
                 unit_id=unit_id,
                 content=content,
+                embedding_content=payload.get("embedding_content"),
+                caption=payload.get("caption"),
+                df=df,
                 metadata=metadata
             )
         elif unit_type == "image":

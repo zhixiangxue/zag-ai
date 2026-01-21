@@ -102,18 +102,39 @@ class BailianProvider(BaseProvider):
         """
         Embed multiple texts in batch using Bailian API
         
+        Bailian API has a batch size limit of 10. This method automatically
+        splits large batches into chunks and processes them sequentially.
+        
         Args:
             texts: List of input texts
             
         Returns:
             List of vector representations
         """
-        response = self._client.embeddings.create(
-            model=self.config.model,
-            input=texts,
-            dimensions=self.config.dimensions
-        )
-        return [item.embedding for item in response.data]
+        # Bailian API batch size limit
+        BATCH_SIZE = 10
+        
+        if len(texts) <= BATCH_SIZE:
+            # Single batch
+            response = self._client.embeddings.create(
+                model=self.config.model,
+                input=texts,
+                dimensions=self.config.dimensions
+            )
+            return [item.embedding for item in response.data]
+        
+        # Multiple batches - split and process
+        all_embeddings = []
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i:i + BATCH_SIZE]
+            response = self._client.embeddings.create(
+                model=self.config.model,
+                input=batch,
+                dimensions=self.config.dimensions
+            )
+            all_embeddings.extend([item.embedding for item in response.data])
+        
+        return all_embeddings
     
     @property
     def dimension(self) -> int:
