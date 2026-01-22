@@ -2,11 +2,11 @@
 PDF document schema
 """
 
-from typing import Any
+from typing import Any, List
 from pydantic import Field
 
 from .document import PageableDocument
-from .unit import UnitCollection
+from .unit import UnitCollection, BaseUnit
 from .metadata import UnitMetadata
 
 
@@ -16,6 +16,7 @@ class PDF(PageableDocument):
     """
     
     content: Any = None  # Raw PDF data or structured content
+    units: List[BaseUnit] = Field(default_factory=list)  # Direct units (for table-only readers like Camelot)
     
     def split(self, splitter: 'BaseSplitter') -> UnitCollection:
         """

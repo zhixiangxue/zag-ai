@@ -126,8 +126,11 @@ class TableExtractor(BaseExtractor):
             # Parse Markdown to DataFrame first
             df = parser._parse_markdown_to_dataframe(table_text)
             if df is not None and not df.empty:
-                # Convert DataFrame to json_data (dict format)
-                json_data = df.to_dict('records')
+                # Convert DataFrame to structured format (preserves duplicate columns)
+                json_data = {
+                    "columns": df.columns.tolist(),
+                    "rows": df.values.tolist()
+                }
                 tasks.append(self._generate_table_summary(json_data))
                 valid_matches.append(table_text)
         

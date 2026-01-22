@@ -295,12 +295,8 @@ class DoclingReader(BaseReader):
                 "Please download the file first and read from local path."
             )
         
-        # Extract custom docling metadata
-        custom = {
-            'text_items_count': len(docling_doc.texts),
-            'table_items_count': len(docling_doc.tables),
-            'picture_items_count': len(docling_doc.pictures)
-        }
+        # Extract custom metadata
+        custom = {}
         
         # Add document name if available
         if hasattr(docling_doc, 'name') and docling_doc.name:

@@ -158,7 +158,7 @@ class TableParser:
         if not rows:
             return None
         
-        # Create DataFrame
+        # Create DataFrame (allow duplicate column names to preserve original semantics)
         try:
             df = pd.DataFrame(rows, columns=headers)
             return df
@@ -339,10 +339,12 @@ Based on the table preview above, is this table data-critical?
         """
         import json
         
+        # Use columns+rows structure to preserve duplicate column names
+        sample_df = df.head(max_rows)
         preview = {
-            "columns": list(df.columns),
+            "columns": df.columns.tolist(),
             "row_count": len(df),
-            "sample_rows": df.head(max_rows).to_dict(orient='records')
+            "sample_rows": sample_df.values.tolist()
         }
         
         return json.dumps(preview, ensure_ascii=False, indent=2)

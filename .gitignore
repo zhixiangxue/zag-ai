@@ -213,3 +213,6 @@ playground*/
 output/
 rag*/
 design/
+*.db
+.workspace/
+.env*

@@ -169,6 +169,9 @@ class MinerUReader(BaseReader):
                 "Install it with: pip install mineru[all]"
             )
         
+        # Convert Path object to string if needed (for compatibility with SourceUtils)
+        source = str(source)
+        
         # Validate and get complete info
         info = SourceUtils.validate(source, check_accessibility=True, timeout=5)
         

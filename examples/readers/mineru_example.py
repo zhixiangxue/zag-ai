@@ -288,29 +288,76 @@ def check_gpu_available():
         return False
 
 
+def normalize_path(path_str: str) -> Path:
+    """
+    Normalize file path by removing quotes and handling drag & drop paths.
+    
+    Handles:
+    - Single quotes: '/path/to/file.pdf'
+    - Double quotes: "/path/to/file.pdf"
+    - Escaped spaces: /path/to/my\\ file.pdf
+    - Plain paths: /path/to/file.pdf
+    """
+    # Remove leading/trailing whitespace
+    path_str = path_str.strip()
+    
+    # Remove surrounding quotes (single or double)
+    if (path_str.startswith("'") and path_str.endswith("'")) or \
+       (path_str.startswith('"') and path_str.endswith('"')):
+        path_str = path_str[1:-1]
+    
+    # Handle escaped spaces (unescape them)
+    path_str = path_str.replace("\\ ", " ")
+    
+    return Path(path_str)
+
+
 def main():
-    # PDF file path - use test file from files directory
-    import os
-    pdf_path = os.path.join(
-        os.path.dirname(__file__),
-        '..',
-        'files',
-        'thunderbird_overview.pdf'
-    )
+    # Interactive file input
+    print("\n" + "=" * 80)
+    print("[bold cyan]MinerUReader Test Suite[/bold cyan]")
+    print("=" * 80 + "\n")
+    
+    print("Enter PDF file path (drag & drop supported): ", end="")
+    try:
+        path_input = input().strip()
+    except KeyboardInterrupt:
+        print("\n\n[yellow]Cancelled by user[/yellow]")
+        return
+    
+    if not path_input:
+        print("[red]No file path provided[/red]")
+        return
+    
+    # Normalize path (handle quotes and escaped spaces)
+    pdf_path = normalize_path(path_input)
+    
+    # Validate file
+    if not pdf_path.exists():
+        print(f"[red]Error: File not found: {pdf_path}[/red]")
+        return
+    
+    if not pdf_path.is_file():
+        print(f"[red]Error: Not a file: {pdf_path}[/red]")
+        return
+    
+    if pdf_path.suffix.lower() != '.pdf':
+        print(f"[yellow]Warning: File extension is not .pdf: {pdf_path.suffix}[/yellow]")
+        print("Continue anyway? [y/N]: ", end="")
+        confirm = input().strip().lower()
+        if confirm != 'y':
+            print("[yellow]Cancelled[/yellow]")
+            return
     
     # Create output directory (under output/ to be ignored by git)
     output_dir = Path("output") / "mineru"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Check if file exists
-    if not Path(pdf_path).exists():
-        print(f"Error: PDF file not found at {pdf_path}")
-        return
-    
     # Check GPU availability
     gpu_available = check_gpu_available()
     
     # Print header
+    print("\n")
     print(Panel.fit(
         "[bold green]MinerUReader Test Suite[/bold green]\n" +
         f"PDF: {pdf_path}\n" +

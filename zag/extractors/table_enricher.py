@@ -43,9 +43,19 @@ class TableEnricher(BaseExtractor):
         >>> print(table_units[0].embedding_content)
     """
     
-    def __init__(self, llm_uri: str, api_key: str = None):
+    def __init__(self, llm_uri: str, api_key: str = None, normalize_table: bool = False):
+        """
+        Initialize TableEnricher
+        
+        Args:
+            llm_uri: LLM URI for generation
+            api_key: API key for LLM provider
+            normalize_table: Whether to normalize/fix table structure before enrichment.
+                           Useful for complex tables with merged cells, multi-level headers.
+        """
         self.llm_uri = llm_uri
         self.api_key = api_key
+        self.normalize_table = normalize_table
         # Do NOT create shared conversation here - it will cause context pollution
         # Each table should use its own conversation instance
     
@@ -98,6 +108,20 @@ class TableEnricher(BaseExtractor):
                 "caption": ""
             }
         
+        # 0. Normalize table structure if enabled (fix merged cells, multi-level headers)
+        if self.normalize_table:
+            try:
+                normalized_df = await self._normalize_table_structure(unit.df)
+                # Update both df and content (markdown representation)
+                unit.df = normalized_df
+                unit.content = self._df_to_markdown(normalized_df)
+            except Exception as e:
+                # If normalization fails, continue with original df
+                # Print error for debugging
+                print(f"[DEBUG] Table normalization failed: {e}")
+                import traceback
+                traceback.print_exc()
+        
         # 1. Get context from referenced TextUnit
         source_text_units = unit.get_referenced_by()
         context = source_text_units[0].content if source_text_units else ""
@@ -114,6 +138,146 @@ class TableEnricher(BaseExtractor):
             "embedding_content": embedding_content,
             "caption": caption
         }
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type(Exception),
+    )
+    async def _normalize_table_structure(self, df: 'pd.DataFrame') -> 'pd.DataFrame':
+        """
+        Normalize complex table structure using LLM
+        
+        Fixes:
+        - Multi-level merged headers
+        - Empty cells from merged cells
+        - Misaligned rows and columns
+        - Complex table layouts
+        
+        Args:
+            df: Original DataFrame with structural issues
+        
+        Returns:
+            Normalized DataFrame with complete rows/columns
+        """
+        import chak
+        from pydantic import BaseModel
+        import pandas as pd
+        
+        # Define output schema
+        class NormalizedTable(BaseModel):
+            columns: list[str]
+            rows: list[list]
+        
+        # Serialize DataFrame to JSON for LLM
+        table_data = {
+            "columns": df.columns.tolist(),
+            "row_count": len(df),
+            "rows": df.values.tolist()
+        }
+        
+        import json
+        table_json = json.dumps(table_data, ensure_ascii=False, indent=2)
+        
+        prompt = f"""You are a table structure normalization expert. The table below was extracted from a PDF and may have structural issues due to merged cells.
+
+Original Table Data:
+{table_json}
+
+Your Task:
+Generate a FULLY NORMALIZED table where EVERY cell has a value. The table should be analysis-ready with consistent structure.
+
+IMPORTANT - Column/Row Consistency Rule:
+- **The number of values in EVERY row must EXACTLY match the number of columns**
+- Count carefully: if you have N columns, each row must have N values
+- This is CRITICAL - mismatched column counts will break the table
+
+Normalization Strategy:
+1. **Identify the table structure**:
+   - Look at the data pattern - is it a wide table with many similar column groups?
+   - If yes, consider if rows should be expanded instead of creating too many columns
+   - Prefer having more rows with fewer columns over fewer rows with many columns
+
+2. **Fill ALL empty cells**: 
+   - If a cell is empty due to merged cells, copy the value from above (for row spans) or from left (for column spans)
+   - NEVER leave any cell empty - fill with the appropriate merged value
+   - Information redundancy is acceptable and encouraged
+
+3. **Flatten multi-level headers**:
+   - If headers span multiple rows, combine them into single descriptive column names
+   - Use "|" separator for hierarchy (e.g., "Transaction Type|Occupancy|Attribute")
+   - Make column names clear and complete
+   - Keep column count reasonable (prefer 5-15 columns, not 50+)
+
+4. **Ensure data alignment**:
+   - Verify that each data row has the EXACT same number of values as there are columns
+   - If original table has repeating column patterns, consider expanding rows instead
+   - Remove any structural rows that are just formatting (if any)
+
+Output Requirements:
+- columns: List of clear, flattened column names
+- rows: List of complete data rows where EVERY cell has a value
+- **CRITICAL**: len(row) == len(columns) for every single row
+- NO empty strings unless the original data is genuinely missing (not due to merged cells)
+
+Example - Converting wide table to normalized:
+Before (wide, hard to read):
+Columns: ["A|B|X", "A|B|Y", "A|C|X", "A|C|Y"]
+Rows: [["1", "2", "3", "4"]]
+
+After (normalized, analysis-ready):
+Columns: ["Category", "Type", "Value"]
+Rows: [["A", "B", "1"], ["A", "B", "2"], ["A", "C", "3"], ["A", "C", "4"]]
+
+Verification Checklist:
+✓ Does every row have exactly len(columns) values?
+✓ Are there no empty cells (except genuine missing data)?
+✓ Is the column count reasonable (<20 columns)?
+✓ Would this table be easy to analyze in Excel/Pandas?
+
+IMPORTANT: Prioritize creating a correctly structured table (matching column/row counts) over preserving the exact original layout.
+"""
+        
+        # Create independent conversation
+        conv = chak.Conversation(self.llm_uri, api_key=self.api_key)
+        
+        try:
+            # Get structured response from LLM
+            print(f"[DEBUG] Sending table to LLM for normalization...")
+            print(f"[DEBUG] Original table shape: {df.shape}")
+            print(f"[DEBUG] Original columns: {df.columns.tolist()[:3]}...")
+            
+            response = await conv.asend(prompt, returns=NormalizedTable)
+            
+            print(f"[DEBUG] LLM response received")
+            print(f"[DEBUG] Response columns count: {len(response.columns)}")
+            print(f"[DEBUG] Response rows count: {len(response.rows)}")
+            print(f"[DEBUG] Response columns: {response.columns[:3]}...")
+            
+            # Validate response
+            if not response.columns or not response.rows:
+                raise ValueError("LLM returned empty table structure")
+            
+            # Ensure all rows have same length as columns
+            validated_rows = []
+            for row in response.rows:
+                if len(row) == len(response.columns):
+                    validated_rows.append(row)
+                elif len(row) < len(response.columns):
+                    # Pad with empty strings
+                    validated_rows.append(row + [""] * (len(response.columns) - len(row)))
+                else:
+                    # Truncate
+                    validated_rows.append(row[:len(response.columns)])
+            
+            # Create new DataFrame
+            normalized_df = pd.DataFrame(validated_rows, columns=response.columns)
+            
+            return normalized_df
+            
+        except Exception as e:
+            # If normalization fails, return original df
+            raise Exception(f"Failed to normalize table: {e}")
     
     @retry(
         stop=stop_after_attempt(3),
@@ -257,11 +421,34 @@ Description:"""
         return preview
     
     def _dataframe_to_dict(self, df: 'pd.DataFrame', max_rows: int = 5) -> str:
-        """Convert DataFrame to dict format for LLM"""
+        """Convert DataFrame to dict format for LLM (preserves duplicate columns)"""
+        sample_df = df.head(max_rows)
         data = {
-            "columns": list(df.columns),
+            "columns": df.columns.tolist(),
             "row_count": len(df),
-            "sample_rows": df.head(max_rows).to_dict(orient='records')
+            "sample_rows": sample_df.values.tolist()
         }
         import json
         return json.dumps(data, ensure_ascii=False, indent=2)
+    
+    def _df_to_markdown(self, df: 'pd.DataFrame') -> str:
+        """Convert DataFrame to markdown table format"""
+        if df is None or df.empty:
+            return "*[Empty table]*"
+        
+        import pandas as pd
+        
+        lines = []
+        
+        # Header row
+        header = [str(col).strip() if pd.notna(col) and str(col).strip() else "" for col in df.columns]
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("| " + " | ".join(["---"] * len(header)) + " |")
+        
+        # Data rows
+        for idx in range(len(df)):
+            row = df.iloc[idx].tolist()
+            row = [str(cell).strip() if pd.notna(cell) and str(cell).strip() else "" for cell in row]
+            lines.append("| " + " | ".join(row) + " |")
+        
+        return "\n".join(lines)

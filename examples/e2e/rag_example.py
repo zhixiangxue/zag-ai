@@ -39,7 +39,6 @@ from zag.indexers import VectorIndexer, FullTextIndexer
 from zag.storages.vector import QdrantVectorStore
 from zag.embedders import Embedder
 from zag.extractors import KeywordExtractor, TableEnricher, TableExtractor
-from zag.parsers import TableParser
 from zag.splitters import MarkdownHeaderSplitter, RecursiveMergingSplitter
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.datamodel.pipeline_options import PdfPipelineOptions
@@ -84,7 +83,57 @@ QDRANT_HOST = "localhost"
 QDRANT_PORT = 16333  # Custom port from qdrant_conf.yaml
 QDRANT_GRPC_PORT = 16334  # Custom gRPC port from qdrant_conf.yaml
 COLLECTION_NAME = "e2e_rag_test"  # ⚠️ Do NOT use 'mortgage_guidelines' - it exists in production!
-PDF_PATH = project_root / "files" / "mortgage_products.pdf"
+
+
+def normalize_path(path_str: str) -> Path:
+    """
+    Normalize file path by removing quotes and handling drag & drop paths.
+    
+    Handles:
+    - Single quotes: '/path/to/file'
+    - Double quotes: "/path/to/file"
+    - Escaped spaces: /path/to/my\ file.pdf
+    """
+    path_str = path_str.strip()
+    
+    # Remove surrounding quotes
+    if (path_str.startswith("'") and path_str.endswith("'")) or \
+       (path_str.startswith('"') and path_str.endswith('"')):
+        path_str = path_str[1:-1]
+    
+    # Handle escaped spaces (from drag & drop)
+    path_str = path_str.replace("\\ ", " ")
+    
+    return Path(path_str)
+
+
+def get_pdf_path() -> Path:
+    """Get PDF file path from user input"""
+    print("\n" + "=" * 70)
+    print("  📄 PDF File Selection")
+    print("=" * 70)
+    print("\nEnter PDF file path (or drag & drop file):")
+    print("Example: /path/to/document.pdf")
+    print()
+    
+    path_input = input("PDF Path: ").strip()
+    
+    if not path_input:
+        print("❌ No file path provided")
+        sys.exit(1)
+    
+    pdf_path = normalize_path(path_input)
+    
+    if not pdf_path.exists():
+        print(f"❌ File not found: {pdf_path}")
+        sys.exit(1)
+    
+    if pdf_path.suffix.lower() != '.pdf':
+        print(f"❌ Not a PDF file: {pdf_path}")
+        sys.exit(1)
+    
+    print(f"✅ PDF file selected: {pdf_path.name}")
+    return pdf_path
 
 
 def print_section(title: str, char: str = "="):
@@ -135,7 +184,7 @@ def print_retrieval_results(query: str, results: list, strategy: str):
     console.print(table)
 
 
-def check_prerequisites():
+def check_prerequisites(pdf_path: Path):
     """Check if all prerequisites are met"""
     print_section("🔍 Checking Prerequisites")
 
@@ -148,10 +197,10 @@ def check_prerequisites():
         print(f"✅ API Key found: {API_KEY[:10]}...")
 
     # Check PDF file
-    if not PDF_PATH.exists():
-        issues.append(f"❌ PDF file not found: {PDF_PATH}")
+    if not pdf_path.exists():
+        issues.append(f"❌ PDF file not found: {pdf_path}")
     else:
-        print(f"✅ PDF file exists: {PDF_PATH.name}")
+        print(f"✅ PDF file exists: {pdf_path.name}")
 
     # Check Qdrant
     try:
@@ -185,11 +234,11 @@ def check_prerequisites():
     return True
 
 
-async def step1_read_document():
+async def step1_read_document(pdf_path: Path):
     """Step 1: Read PDF document"""
     print_section("📄 Step 1: Read Document", "-")
 
-    print(f"Reading PDF: {PDF_PATH.name}")
+    print(f"Reading PDF: {pdf_path.name}")
     print("Using DoclingReader with default pipeline (CPU)...")
 
     # Configure DoclingReader (use CPU to avoid platform issues)
@@ -200,7 +249,7 @@ async def step1_read_document():
     )
 
     reader = DoclingReader(pdf_pipeline_options=pdf_options)
-    doc = reader.read(str(PDF_PATH))
+    doc = reader.read(str(pdf_path))
 
     print(f"✅ Document loaded:")
     print(f"   - Type: {type(doc).__name__}")
@@ -246,7 +295,7 @@ async def step2_split_document(doc):
     return units
 
 
-async def step3_process_tables(units):
+async def step3_process_tables(units, pdf_path):
     """Step 3: Process tables (TextUnit + TableUnit parallel processing)"""
     print_section("📊 Step 3: Process Tables (TextUnit + TableUnit)", "-")
 
@@ -265,28 +314,33 @@ async def step3_process_tables(units):
     
     print(f"   ✅ Processed {len(units)} TextUnits")
     
-    # 3.2 Parse tables from TextUnits (filter data-critical only)
-    print("\nStep 3.2: Parsing data-critical TableUnits from TextUnits...")
-    parser = TableParser(
-        llm_uri=LLM_URI,
-        api_key=API_KEY
-    )
-    table_units = await parser.aparse(units, filter_critical=True)
-    print(f"   ✅ Parsed {len(table_units)} data-critical TableUnits from {len(units)} TextUnits")
+    # 3.2 Extract tables directly using CamelotReader
+    print("\nStep 3.2: Extracting TableUnits using CamelotReader...")
+    from zag.readers import CamelotReader
+    
+    # Use Camelot to extract tables directly from PDF
+    camelot_reader = CamelotReader(flavor="lattice")  # Use lattice mode for bordered tables
+    camelot_doc = camelot_reader.read(str(pdf_path))
+    table_units = list(camelot_doc.units)  # Get TableUnits directly
+    
+    print(f"   ✅ Extracted {len(table_units)} TableUnits using CamelotReader")
     
     if table_units:
-        # Show parsed table info
-        print("\n   Parsed tables:")
+        # Show extracted table info
+        print("\n   Extracted tables:")
         for i, table_unit in enumerate(table_units[:3], 1):  # Show first 3
             print(f"     {i}. unit_id: {table_unit.unit_id[:20]}...")
-            print(f"        df shape: {table_unit.df.shape}")
-            print(f"        columns: {list(table_unit.df.columns)}")
+            print(f"        page: {table_unit.metadata.page_numbers}")
+            if table_unit.df is not None:
+                print(f"        df shape: {table_unit.df.shape}")
+                print(f"        columns: {list(table_unit.df.columns)}")
         
         # 3.3 Enrich TableUnits with caption and embedding_content
         print("\nStep 3.3: Enriching TableUnits with LLM...")
         enricher = TableEnricher(
             llm_uri=LLM_URI,
-            api_key=API_KEY
+            api_key=API_KEY,
+            normalize_table=True  # Enable table structure normalization for complex tables
         )
         await enricher.aextract(table_units)
         print(f"   ✅ Enriched {len(table_units)} TableUnits")
@@ -295,7 +349,8 @@ async def step3_process_tables(units):
         print("\n   Enriched tables:")
         for i, table_unit in enumerate(table_units[:3], 1):  # Show first 3
             print(f"     {i}. caption: {table_unit.caption}")
-            print(f"        embedding_content: {table_unit.embedding_content[:80]}...")
+            if table_unit.embedding_content:
+                print(f"        embedding_content: {table_unit.embedding_content[:80]}...")
     else:
         print("   ⚠️  No tables found in document")
 
@@ -666,8 +721,11 @@ async def main():
     print(f"📂 Working directory: {RUN_DIR}")
     print(f"   All output files will be saved here.\n")
 
+    # Get PDF file path from user
+    pdf_path = get_pdf_path()
+
     # Check prerequisites
-    if not check_prerequisites():
+    if not check_prerequisites(pdf_path):
         print("\n❌ Prerequisites not met. Please fix the issues above.")
         sys.exit(1)
 
@@ -675,12 +733,12 @@ async def main():
         # Execute pipeline
         start_time = time.time()
 
-        doc = await step1_read_document()
+        doc = await step1_read_document(pdf_path)
         units = await step2_split_document(doc)
 
         rich_print(units[0])
 
-        all_units = await step3_process_tables(units)
+        all_units = await step3_process_tables(units, pdf_path)
         all_units = await step4_extract_metadata(all_units)
         vector_indexer, fulltext_indexer = await step5_build_indices(all_units)
         

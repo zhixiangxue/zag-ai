@@ -2,28 +2,56 @@
 Test MarkItDownReader.read() function
 """
 
+from pathlib import Path
 from zag.readers.markitdown import MarkItDownReader
 from zag.schemas.pdf import PDF
 
 
-def test_read_local_pdf():
-    """Test reading local PDF file"""
+def normalize_path(path_str: str) -> Path:
+    """
+    Normalize file path by removing quotes and handling drag & drop paths.
+    
+    Handles:
+    - Single quotes: '/path/to/file.pdf'
+    - Double quotes: "/path/to/file.pdf"
+    - Escaped spaces: /path/to/my\\ file.pdf
+    - Plain paths: /path/to/file.pdf
+    """
+    # Remove leading/trailing whitespace
+    path_str = path_str.strip()
+    
+    # Remove surrounding quotes (single or double)
+    if (path_str.startswith("'") and path_str.endswith("'")) or \
+       (path_str.startswith('"') and path_str.endswith('"')):
+        path_str = path_str[1:-1]
+    
+    # Handle escaped spaces (unescape them)
+    path_str = path_str.replace("\\ ", " ")
+    
+    return Path(path_str)
+
+
+def test_read_pdf(file_path: str):
+    """Test reading PDF file"""
     print("\n" + "="*60)
-    print("Test 1: Read Local PDF File")
+    print("MarkItDown Reader Test")
     print("="*60)
     
     reader = MarkItDownReader()
-    # Use test file from files directory
-    import os
-    local_file = os.path.join(
-        os.path.dirname(__file__),
-        '..',
-        'files',
-        'thunderbird_overview.pdf'
-    )
     
-    print(f"\nReading: {local_file}")
-    doc = reader.read(local_file)
+    print(f"\nReading: {file_path}")
+    doc = reader.read(file_path)
+    
+    # Save to temp directory
+    import tempfile
+    import os
+    temp_dir = Path(tempfile.gettempdir())
+    output_file = temp_dir / f"{Path(file_path).stem}_markitdown.md"
+    
+    with output_file.open('w', encoding='utf-8') as f:
+        f.write(doc.content)
+    
+    print(f"\n✓ Content saved to: {output_file}")
     
     print(f"\n✓ Document created successfully")
     print(f"  - Type: {type(doc).__name__}")
@@ -40,41 +68,8 @@ def test_read_local_pdf():
     print(f"  - reader_name: {doc.metadata.reader_name}")
     print(f"  - created_at: {doc.metadata.created_at}")
     
-    print(f"\n✓ Content preview (first 200 chars):")
-    print(f"  {doc.content[:200]}...")
-    
-    return doc
-
-
-def test_read_remote_pdf():
-    """Test reading remote PDF file from URL"""
-    print("\n" + "="*60)
-    print("Test 2: Read Remote PDF File (URL)")
-    print("="*60)
-    
-    reader = MarkItDownReader()
-    url = "https://wcbpub.oss-cn-hangzhou.aliyuncs.com/xue/zeitro/Thunderbird%20Product%20Overview%202025%20-%20No%20Doc.pdf"
-    
-    print(f"\nReading: {url}")
-    print("(This may take a few seconds...)")
-    
-    doc = reader.read(url)
-    
-    print(f"\n✓ Document created successfully")
-    print(f"  - Type: {type(doc).__name__}")
-    print(f"  - Doc ID: {doc.doc_id}")
-    print(f"  - Is PDF: {isinstance(doc, PDF)}")
-    print(f"\n✓ Metadata:")
-    print(f"  - source: {doc.metadata.source}")
-    print(f"  - source_type: {doc.metadata.source_type}")
-    print(f"  - file_type: {doc.metadata.file_type}")
-    print(f"  - mime_type: {doc.metadata.mime_type}")
-    print(f"  - content_length: {doc.metadata.content_length} characters")
-    print(f"  - reader_name: {doc.metadata.reader_name}")
-    print(f"  - created_at: {doc.metadata.created_at}")
-    
-    print(f"\n✓ Content preview (first 200 chars):")
-    print(f"  {doc.content[:200]}...")
+    print(f"\n✓ Content preview (first 500 chars):")
+    print(f"  {doc.content[:500]}...")
     
     return doc
 
@@ -82,27 +77,46 @@ def test_read_remote_pdf():
 def main():
     """Run tests"""
     print("\n" + "="*60)
-    print("MARKITDOWN READER - READ FUNCTION TEST")
-    print("="*60)
+    print("MARKITDOWN READER - INTERACTIVE TEST")
+    print("="*60 + "\n")
+    
+    print("Enter PDF file path (drag & drop supported): ", end="")
+    try:
+        path_input = input().strip()
+    except KeyboardInterrupt:
+        print("\n\n[yellow]Cancelled by user[/yellow]")
+        return
+    
+    if not path_input:
+        print("No file path provided")
+        return
+    
+    # Normalize path (handle quotes and escaped spaces)
+    pdf_path = normalize_path(path_input)
+    
+    # Validate file
+    if not pdf_path.exists():
+        print(f"Error: File not found: {pdf_path}")
+        return
+    
+    if not pdf_path.is_file():
+        print(f"Error: Not a file: {pdf_path}")
+        return
+    
+    if pdf_path.suffix.lower() != '.pdf':
+        print(f"Warning: File extension is not .pdf: {pdf_path.suffix}")
+        print("Continue anyway? [y/N]: ", end="")
+        confirm = input().strip().lower()
+        if confirm != 'y':
+            print("Cancelled")
+            return
     
     try:
-        # Test local file
-        local_doc = test_read_local_pdf()
-        
-        # Test remote file
-        remote_doc = test_read_remote_pdf()
-        
-        # Compare
-        print("\n" + "="*60)
-        print("Comparison")
-        print("="*60)
-        print(f"\n✓ Both are PDF documents: {isinstance(local_doc, PDF) and isinstance(remote_doc, PDF)}")
-        print(f"✓ Content lengths similar: {abs(len(local_doc.content) - len(remote_doc.content)) < 100}")
-        print(f"  - Local: {len(local_doc.content)} chars")
-        print(f"  - Remote: {len(remote_doc.content)} chars")
+        # Test file
+        doc = test_read_pdf(str(pdf_path))
         
         print("\n" + "="*60)
-        print("✅ ALL TESTS PASSED!")
+        print("✅ TEST PASSED!")
         print("="*60 + "\n")
         
     except Exception as e:
