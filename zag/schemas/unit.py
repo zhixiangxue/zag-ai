@@ -439,22 +439,38 @@ class TableUnit(BaseUnit):
     caption: Optional[str] = None
     
     @property
-    def json_data(self) -> Optional[list[dict]]:
-        """Convert DataFrame to JSON-serializable format (list of dicts)"""
+    def json_data(self) -> Optional[dict]:
+        """
+        Convert DataFrame to JSON-serializable format that preserves duplicate columns.
+        
+        Returns dict with:
+            - columns: List of column names (may contain duplicates)
+            - rows: List of row values as lists
+        """
         if self.df is None:
             return None
         try:
-            return self.df.to_dict('records')
+            return {
+                "columns": self.df.columns.tolist(),
+                "rows": self.df.values.tolist()
+            }
         except Exception:
             return None
     
     @field_serializer('df')
     def serialize_df(self, df: Any, _info):
-        """Serialize DataFrame to JSON-compatible format for Pydantic"""
+        """
+        Serialize DataFrame to JSON-compatible format for Pydantic.
+        
+        Preserves duplicate columns by using columns+rows structure instead of to_dict('records').
+        """
         if df is None:
             return None
         try:
-            return df.to_dict('records')
+            return {
+                "columns": df.columns.tolist(),
+                "rows": df.values.tolist()
+            }
         except Exception:
             return None
     

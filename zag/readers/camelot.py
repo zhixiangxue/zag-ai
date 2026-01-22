@@ -1,0 +1,347 @@
+"""PDF reader using Camelot for advanced table extraction."""
+
+from pathlib import Path
+from typing import List, Literal, Optional
+
+try:
+    import camelot
+except ImportError:
+    raise ImportError(
+        "camelot-py is required. Install with: pip install 'camelot-py[base]'"
+    )
+
+from zag.schemas import BaseDocument, DocumentMetadata, Page
+from zag.schemas.pdf import PDF
+from .base import BaseReader
+from ..utils.hash import calculate_file_hash
+
+
+class CamelotReader(BaseReader):
+    """
+    Reader for PDF files using Camelot for advanced table extraction.
+    
+    Camelot is specialized for extracting tables from PDFs with high accuracy.
+    It supports two extraction modes:
+    
+    1. **Lattice mode** (default): Uses lines/borders to detect tables
+       - Best for: Tables with clear borders and grid lines
+       - Pros: High accuracy for bordered tables, handles merged cells well
+       - Cons: Cannot detect borderless tables
+    
+    2. **Stream mode**: Uses text positions to detect tables
+       - Best for: Tables without borders, whitespace-separated data
+       - Pros: Can detect borderless tables
+       - Cons: Less accurate than Lattice for bordered tables
+    
+    Features:
+    - Extracts tables as structured data (DataFrame-compatible)
+    - Handles complex tables with merged cells
+    - Supports multi-page documents
+    - Provides accuracy scores for each table
+    - Configurable extraction parameters
+    
+    Example:
+        >>> # Use default Lattice mode for bordered tables
+        >>> reader = CamelotReader()
+        >>> doc = reader.read("document.pdf")
+        
+        >>> # Use Stream mode for borderless tables
+        >>> reader = CamelotReader(flavor="stream")
+        >>> doc = reader.read("document.pdf")
+        
+        >>> # Custom Lattice settings
+        >>> reader = CamelotReader(
+        ...     flavor="lattice",
+        ...     line_scale=15,  # Line detection sensitivity
+        ...     copy_text=['v']  # Copy text direction
+        ... )
+        
+        >>> # Custom Stream settings for complex tables
+        >>> reader = CamelotReader(
+        ...     flavor="stream",
+        ...     row_tol=5,     # Moderate: combine text into rows
+        ...     column_tol=2,  # Moderate: combine text into columns
+        ...     edge_tol=75    # Moderate: extend text edges
+        ... )
+        
+        >>> # Flatten complex tables (Lattice mode only)
+        >>> reader = CamelotReader(
+        ...     flavor="lattice",
+        ...     copy_text=['h', 'v'],  # Copy merged cell text in both directions
+        ...     split_text=True        # Split spanning text
+        ... )
+    """
+    
+    def __init__(
+        self,
+        flavor: Literal["lattice", "stream"] = "lattice",
+        pages: str = "all",
+        **kwargs
+    ):
+        """
+        Initialize Camelot reader.
+        
+        Args:
+            flavor: Extraction mode
+                - "lattice": Line-based detection (default, best for bordered tables)
+                - "stream": Text position-based detection (best for borderless tables)
+            pages: Pages to extract tables from
+                - "all": All pages (default)
+                - "1": Only first page
+                - "1,2,3": Specific pages
+                - "1-5": Page range
+            **kwargs: Additional Camelot parameters
+                Common (both modes):
+                    - split_text: Split text spanning multiple cells (default: False)
+                        * WARNING: May break words apart, use with caution
+                    - strip_text: Remove characters from text (default: '')
+                    
+                For Lattice mode (bordered tables):
+                    - line_scale: Line detection sensitivity (default: 15)
+                    - copy_text: Copy merged cell text to spanning cells
+                        * ['h']: Copy horizontally
+                        * ['v']: Copy vertically  
+                        * ['h', 'v']: Copy in both directions (flatten)
+                    - shift_text: Text flow direction in merged cells (default: ['l', 't'])
+                        * 'l': left, 'r': right, 't': top, 'b': bottom
+                    - process_background: Process background lines (default: False)
+                    
+                For Stream mode (borderless tables):
+                    - row_tol: Vertical text combination tolerance (default: 2)
+                        * Increase MODERATELY (e.g., 5) to combine text into rows
+                        * Too high will merge different rows incorrectly
+                    - column_tol: Horizontal text combination tolerance (default: 0)
+                        * Increase MODERATELY (e.g., 2) to combine text into columns
+                        * Too high will merge different columns incorrectly
+                    - edge_tol: Text edge extension tolerance (default: 50)
+                        * Increase MODERATELY (e.g., 75) for better handling
+                    - columns: Manually specify column x-coordinates (e.g., ['100,200,300'])
+                        * Use when automatic column detection fails
+                    
+                Tips for complex tables:
+                    - Lattice: copy_text=['h', 'v'], split_text=True
+                    - Stream: row_tol=5, column_tol=2, edge_tol=75 (avoid split_text)
+                    - If columns merge: Use lower tolerance or specify columns parameter
+        """
+        self.flavor = flavor
+        self.pages = pages
+        self.kwargs = kwargs
+    
+    @property
+    def supported_formats(self) -> List[str]:
+        """Return supported file formats."""
+        return [".pdf"]
+    
+    def read(self, file_path: str, **kwargs) -> BaseDocument:
+        """
+        Read PDF file and extract content with tables.
+        
+        Args:
+            file_path: Path to PDF file
+            **kwargs: Additional arguments (currently unused)
+        
+        Returns:
+            PDF document with extracted content and metadata
+        """
+        file_path = Path(file_path)
+        
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        if file_path.suffix.lower() not in self.supported_formats:
+            raise ValueError(
+                f"Unsupported format: {file_path.suffix}. "
+                f"Supported: {self.supported_formats}"
+            )
+        
+        # Extract tables using Camelot
+        tables = camelot.read_pdf(
+            str(file_path),
+            flavor=self.flavor,
+            pages=self.pages,
+            **self.kwargs
+        )
+        
+        # Build pages with tables
+        pages = self._build_pages(tables, file_path)
+        
+        # Build full content
+        full_text = "\n\n".join(page.content for page in pages)
+        
+        # Create metadata
+        metadata = self._extract_metadata(file_path, full_text, len(pages))
+        
+        # Create PDF document with doc_id based on file hash
+        pdf_doc = PDF(
+            doc_id=metadata.md5,
+            content=full_text,
+            metadata=metadata,
+            pages=pages
+        )
+        
+        return pdf_doc
+    
+    def _build_pages(self, tables, file_path: Path) -> List[Page]:
+        """
+        Build pages from extracted tables.
+        
+        Args:
+            tables: Camelot TableList object
+            file_path: Path to PDF file
+        
+        Returns:
+            List of Page objects
+        """
+        if not tables:
+            # No tables found, return empty page structure
+            # Try to get page count from PDF
+            try:
+                import PyPDF2
+                with open(file_path, 'rb') as f:
+                    pdf_reader = PyPDF2.PdfReader(f)
+                    num_pages = len(pdf_reader.pages)
+            except Exception:
+                num_pages = 1
+            
+            return [
+                Page(
+                    page_number=i + 1,
+                    content="[No tables detected on this page]",
+                    units=[],
+                    metadata={}
+                )
+                for i in range(num_pages)
+            ]
+        
+        # Group tables by page
+        page_tables = {}
+        for table in tables:
+            page_num = table.page
+            if page_num not in page_tables:
+                page_tables[page_num] = []
+            page_tables[page_num].append(table)
+        
+        # Build pages
+        pages = []
+        for page_num in sorted(page_tables.keys()):
+            page_content = []
+            
+            for i, table in enumerate(page_tables[page_num], start=1):
+                # Get table metadata
+                accuracy = table.accuracy if hasattr(table, 'accuracy') else None
+                whitespace = table.whitespace if hasattr(table, 'whitespace') else None
+                
+                # Add table info
+                info_lines = [f"**Table {i}**"]
+                if accuracy is not None:
+                    info_lines.append(f"*Accuracy: {accuracy:.2f}%*")
+                if whitespace is not None:
+                    info_lines.append(f"*Whitespace: {whitespace:.2f}%*")
+                
+                page_content.append("\n".join(info_lines))
+                
+                # Convert table to markdown
+                md_table = self._table_to_markdown(table.df)
+                page_content.append(md_table)
+            
+            pages.append(Page(
+                page_number=page_num,
+                content="\n\n".join(page_content),
+                units=[],
+                metadata={
+                    "table_count": len(page_tables[page_num]),
+                    "extraction_flavor": self.flavor
+                }
+            ))
+        
+        return pages
+    
+    def _table_to_markdown(self, df) -> str:
+        """
+        Convert DataFrame to Markdown format.
+        
+        Args:
+            df: pandas DataFrame
+        
+        Returns:
+            Markdown-formatted table string
+        """
+        if df is None or df.empty:
+            return "*[Empty table]*"
+        
+        # Convert DataFrame to markdown
+        lines = []
+        
+        # Header row (use first row as header)
+        header = df.iloc[0].tolist()
+        header = [str(cell).strip() if cell else "" for cell in header]
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("| " + " | ".join(["---"] * len(header)) + " |")
+        
+        # Data rows
+        for idx in range(1, len(df)):
+            row = df.iloc[idx].tolist()
+            row = [str(cell).strip() if cell else "" for cell in row]
+            lines.append("| " + " | ".join(row) + " |")
+        
+        return "\n".join(lines)
+    
+    def _extract_metadata(self, file_path: Path, content: str, num_pages: int) -> DocumentMetadata:
+        """
+        Extract metadata from PDF.
+        
+        Args:
+            file_path: Path to PDF file
+            content: Document content
+            num_pages: Number of pages
+        
+        Returns:
+            DocumentMetadata object
+        """
+        # Calculate file hash using xxhash
+        try:
+            file_size = file_path.stat().st_size
+            file_hash = calculate_file_hash(file_path)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to calculate file hash for {file_path}: {e}"
+            )
+        
+        # Try to get PDF metadata
+        custom = {
+            "doc_name": file_path.name,
+            "total_pages": num_pages,
+            "extraction_flavor": self.flavor,
+        }
+        
+        # Try to extract PDF metadata using PyPDF2
+        try:
+            import PyPDF2
+            with open(file_path, 'rb') as f:
+                pdf_reader = PyPDF2.PdfReader(f)
+                info = pdf_reader.metadata or {}
+                
+                # Add title if available
+                if info.get('/Title'):
+                    custom["title"] = info.get('/Title')
+                
+                # Add author if available
+                if info.get('/Author'):
+                    custom["author"] = info.get('/Author')
+        except Exception:
+            # If PyPDF2 fails, just skip metadata extraction
+            pass
+        
+        return DocumentMetadata(
+            source=str(file_path),
+            source_type="local",
+            file_type="pdf",
+            file_name=file_path.name,
+            file_size=file_size,
+            file_extension=".pdf",
+            md5=file_hash,
+            content_length=len(content),
+            mime_type="application/pdf",
+            reader_name="CamelotReader",
+            custom=custom
+        )

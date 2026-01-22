@@ -257,11 +257,12 @@ Description:"""
         return preview
     
     def _dataframe_to_dict(self, df: 'pd.DataFrame', max_rows: int = 5) -> str:
-        """Convert DataFrame to dict format for LLM"""
+        """Convert DataFrame to dict format for LLM (preserves duplicate columns)"""
+        sample_df = df.head(max_rows)
         data = {
-            "columns": list(df.columns),
+            "columns": df.columns.tolist(),
             "row_count": len(df),
-            "sample_rows": df.head(max_rows).to_dict(orient='records')
+            "sample_rows": sample_df.values.tolist()
         }
         import json
         return json.dumps(data, ensure_ascii=False, indent=2)
