@@ -82,6 +82,10 @@ def test_read_pdf(file_path: str, flavor: str = "lattice", flatten: bool = False
     console.print("\n[bold green]✓ Document extracted successfully![/bold green]")
     console.print(f"\n[bold]Document Info:[/bold]")
     console.print(f"  File: {doc.metadata.file_name}")
+<<<<<<< HEAD
+=======
+    console.print(f"  Pages: {len(doc.pages)}")
+>>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
     console.print(f"  Total Pages: {doc.metadata.custom.get('total_pages', 'N/A')}")
     console.print(f"  Extraction Mode: {doc.metadata.custom.get('extraction_flavor', 'N/A')}")
     
@@ -91,13 +95,25 @@ def test_read_pdf(file_path: str, flavor: str = "lattice", flatten: bool = False
     if doc.metadata.custom.get('author'):
         console.print(f"  Author: {doc.metadata.custom.get('author')}")
     
+<<<<<<< HEAD
     # Show TableUnits statistics
     console.print(f"\n[bold]TableUnits Extracted:[/bold]")
     total_tables = len(doc.units)
+=======
+    # Show table statistics
+    console.print(f"\n[bold]Table Statistics:[/bold]")
+    total_tables = 0
+    for page in doc.pages:
+        table_count = page.metadata.get('table_count', 0)
+        if table_count > 0:
+            console.print(f"  Page {page.page_number}: {table_count} table(s)")
+            total_tables += table_count
+>>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
     
     if total_tables == 0:
         console.print("  [yellow]No tables detected[/yellow]")
     else:
+<<<<<<< HEAD
         console.print(f"  [green]Total TableUnits: {total_tables}[/green]")
         
         # Show each TableUnit info
@@ -121,6 +137,16 @@ def test_read_pdf(file_path: str, flavor: str = "lattice", flatten: bool = False
         preview = first_unit.content[:800]
         console.print(preview)
         if len(first_unit.content) > 800:
+=======
+        console.print(f"  [green]Total: {total_tables} table(s)[/green]")
+    
+    # Show first page preview
+    if doc.pages:
+        console.print(f"\n[bold]First Page Preview:[/bold]")
+        preview = doc.pages[0].content[:800]
+        console.print(preview)
+        if len(doc.pages[0].content) > 800:
+>>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
             console.print("[dim]...(truncated)[/dim]")
     
     # Save to temp directory
@@ -133,11 +159,19 @@ def test_read_pdf(file_path: str, flavor: str = "lattice", flatten: bool = False
         f.write(f"# {title}\n\n")
         if doc.metadata.custom.get('author'):
             f.write(f"**Author:** {doc.metadata.custom.get('author')}\n")
+<<<<<<< HEAD
         f.write(f"**Total Pages:** {doc.metadata.custom.get('total_pages', 'N/A')}\n")
         f.write(f"**Extraction Mode:** {flavor}\n")
         if flatten:
             f.write(f"**Flatten:** Yes\n")
         f.write(f"**Total TableUnits:** {total_tables}\n")
+=======
+        f.write(f"**Pages:** {len(doc.pages)}\n")
+        f.write(f"**Extraction Mode:** {flavor}\n")
+        if flatten:
+            f.write(f"**Flatten:** Yes\n")
+        f.write(f"**Total Tables:** {total_tables}\n")
+>>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
         f.write(f"**Source:** {doc.metadata.source}\n\n")
         f.write("---\n\n")
         
@@ -162,6 +196,7 @@ def compare_modes(file_path: str):
         reader = CamelotReader(flavor=flavor)
         doc = reader.read(str(file_path))
         
+<<<<<<< HEAD
         total_tables = len(doc.units)
         console.print(f"  TableUnits detected: {total_tables}")
         if total_tables > 0:
@@ -170,6 +205,11 @@ def compare_modes(file_path: str):
                 if unit.metadata.page_numbers:
                     page_nums.update(unit.metadata.page_numbers)
             console.print(f"  Pages with tables: {sorted(page_nums)}")
+=======
+        total_tables = sum(page.metadata.get('table_count', 0) for page in doc.pages)
+        console.print(f"  Tables detected: {total_tables}")
+        console.print(f"  Pages with tables: {len([p for p in doc.pages if p.metadata.get('table_count', 0) > 0])}")
+>>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
 
 
 if __name__ == "__main__":
