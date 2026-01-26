@@ -38,7 +38,8 @@ from zag.retrievers import VectorRetriever, FullTextRetriever, QueryFusionRetrie
 from zag.indexers import VectorIndexer, FullTextIndexer
 from zag.storages.vector import QdrantVectorStore
 from zag.embedders import Embedder
-from zag.extractors import KeywordExtractor, TableEnricher, TableExtractor
+from zag.extractors import KeywordExtractor, TableEnricher, TableSummarizer
+from zag.parsers import TableParser
 from zag.splitters import MarkdownHeaderSplitter, RecursiveMergingSplitter
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.datamodel.pipeline_options import PdfPipelineOptions
@@ -301,7 +302,7 @@ async def step3_process_tables(units, pdf_path):
 
     # 3.1 Process TextUnit embedding_content (replace tables with natural language)
     print("Step 3.1: Processing TextUnit embedding_content...")
-    extractor = TableExtractor(
+    extractor = TableSummarizer(
         llm_uri=LLM_URI,
         api_key=API_KEY
     )

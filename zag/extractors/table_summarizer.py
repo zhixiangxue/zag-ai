@@ -17,9 +17,12 @@ from .base import BaseExtractor
 from ..schemas.unit import TableUnit, TextUnit
 
 
-class TableExtractor(BaseExtractor):
+class TableSummarizer(BaseExtractor):
     """
-    Table extractor that generates natural language descriptions for tables.
+    Table summarizer that generates natural language descriptions for tables.
+    
+    Note: This is for general-purpose table summarization (allows some information loss).
+    For precise table enrichment (caption, data-critical detection), use TableEnricher instead.
     
     Supports:
     1. TableUnit: Generate embedding_content (summary) from json_data
@@ -39,16 +42,16 @@ class TableExtractor(BaseExtractor):
     
     Example:
         >>> # For TableUnits
-        >>> extractor = TableExtractor(
+        >>> summarizer = TableSummarizer(
         ...     llm_uri="openai/gpt-4o-mini",
         ...     api_key="sk-xxx"
         ... )
-        >>> results = await extractor.aextract(table_units)
+        >>> results = await summarizer.aextract(table_units)
         >>> for unit, metadata in zip(table_units, results):
         ...     unit.embedding_content = metadata.get("embedding_content")
         >>> 
         >>> # For TextUnits with tables
-        >>> results = await extractor.aextract(text_units)
+        >>> results = await summarizer.aextract(text_units)
         >>> for unit, metadata in zip(text_units, results):
         ...     if metadata.get("embedding_content"):
         ...         unit.embedding_content = metadata["embedding_content"]

@@ -4,9 +4,11 @@ Test TableParser and TableEnricher - Complete workflow
 
 Demonstrates:
 - TableParser: Extract tables from TextUnit and generate DataFrame
-- TableEnricher: Generate embedding_content, caption, and schema
+- TableEnricher: Generate caption, embedding_content, and data-critical detection
 - Relations: Bidirectional linking between TextUnit and TableUnit
 - Complete workflow from parsing to enrichment
+
+Note: Uses OpenAI gpt-4o (requires OPENAI_API_KEY in .env)
 """
 
 import sys
@@ -110,7 +112,7 @@ async def main():
 
     # Step 3: Enrich TableUnits
     print("\n" + "=" * 70)
-    print("Step 3: TableEnricher generates metadata")
+    print("Step 3: TableEnricher generates enrichment data")
     print("=" * 70)
 
     # Check for API key
@@ -118,19 +120,19 @@ async def main():
     from dotenv import load_dotenv
     load_dotenv()
 
-    api_key = os.getenv("BAILIAN_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("\n⚠️  Warning: BAILIAN_API_KEY not found in .env")
+        print("\n⚠️  Warning: OPENAI_API_KEY not found in .env")
         print("   Skipping enrichment step (requires LLM)")
         print("\n💡 To test enrichment, add your API key to .env:")
-        print("   BAILIAN_API_KEY=sk-xxx")
+        print("   OPENAI_API_KEY=sk-xxx")
         return
 
-    print(f"\n✅ Using Bailian API")
+    print(f"\n✅ Using OpenAI gpt-4o")
     print(f"   API key: {api_key[:10]}...")
 
     enricher = TableEnricher(
-        llm_uri="bailian/qwen-plus",
+        llm_uri="openai/gpt-4o",
         api_key=api_key
     )
 
@@ -139,10 +141,10 @@ async def main():
 
     print("\n✅ Enrichment complete!")
 
-    # Note: BaseExtractor.aextract() automatically writes results to units:
+    # Note: TableEnricher automatically enriches units in-place:
+    # - caption → unit.caption
     # - embedding_content → unit.embedding_content
-    # - caption, schema → unit.metadata.custom
-    # So we just need to verify the results
+    # - is_data_critical, criticality_reason → unit.metadata.custom
 
     # Step 4: Verify enriched TableUnits
     print("\n" + "=" * 70)
@@ -154,7 +156,15 @@ async def main():
         print(f"\n{'='*60}")
         print(f"Enriched Table {i}")
         print(f"{'='*60}")
-        rprint(table)
+        print(f"  Caption: {table.caption or 'N/A'}")
+        
+        # Note: is_data_critical is stored in metadata.custom["table"]
+        table_meta = table.metadata.custom.get('table', {})
+        print(f"  Is Data-Critical: {table_meta.get('is_data_critical', 'N/A')}")
+        print(f"  Criticality Reason: {table_meta.get('criticality_reason', 'N/A')}")
+        
+        print(f"  Embedding Content Preview: {table.embedding_content[:150] if table.embedding_content else 'N/A'}...")
+        print()
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ import asyncio
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from zag.schemas.unit import TextUnit, TableUnit
-from zag.extractors import TableExtractor, StructuredExtractor, KeywordExtractor
+from zag.extractors import TableSummarizer, StructuredExtractor, KeywordExtractor
 
 # Load environment variables
 load_dotenv()
@@ -114,13 +114,13 @@ async def test_structured_extractor():
 
 
 async def test_table_extractor():
-    """Test TableExtractor"""
+    """Test TableSummarizer"""
     print("\n" + "=" * 60)
-    print("Test 3: Table Extractor")
+    print("Test 3: Table Summarizer")
     print("=" * 60)
     
     # Create extractor
-    extractor = TableExtractor(
+    extractor = TableSummarizer(
         llm_uri=f"bailian/{LLM_MODEL}",
         api_key=API_KEY
     )

@@ -1,8 +1,9 @@
 """
-TableUnit enricher for generating embedding content, caption, and schema
+TableUnit enricher for generating embedding content, caption, and criticality judgment
 """
 
-from typing import Dict, List
+from typing import Dict, List, Any
+from enum import Enum
 import asyncio
 from tenacity import (
     retry,
@@ -15,13 +16,42 @@ from .base import BaseExtractor
 from ..schemas.unit import TableUnit
 
 
+class TableEnrichMode(Enum):
+    """Table enrichment mode
+    
+    Defines how TableEnricher processes tables: judge criticality + generate enrichment content
+    """
+    
+    ALL = "all"
+    """Judge all tables for is_data_critical + enrich all tables
+    
+    Use cases:
+    - Development/debugging phase
+    - Treating all tables equally
+    
+    Cost: Higher (all tables call LLM for caption / embedding_content)
+    """
+    
+    CRITICAL_ONLY = "critical_only"
+    """Judge all tables for is_data_critical + enrich only critical tables (recommended)
+    
+    Use cases:
+    - Production environment, cost-sensitive
+    - Only important tables need independent indexing
+    - Non-critical tables can be embedded with TextUnit
+    
+    Cost: Medium (only critical tables call LLM for enrichment)
+    """
+
+
 class TableEnricher(BaseExtractor):
     """
-    TableUnit enricher for generating embedding content and caption
+    TableUnit enricher for generating embedding content, caption, and criticality judgment
     
     Generates:
-        - embedding_content: Detailed natural language description (for vector search)
-        - caption: Intelligent title based on content and context (for display/organization)
+        - is_data_critical: Whether table contains critical business data (always judged)
+        - embedding_content: Detailed natural language description (optional, based on mode)
+        - caption: Intelligent title based on content and context (optional, based on mode)
     
     Note:
         - Does NOT generate schema (df already contains all schema info: df.columns, len(df))
@@ -33,14 +63,22 @@ class TableEnricher(BaseExtractor):
         api_key: API key for the LLM provider
     
     Example:
+        >>> from zag.extractors import TableEnricher, TableEnrichMode
+        >>> 
         >>> enricher = TableEnricher(
         ...     llm_uri="bailian/qwen-plus",
         ...     api_key="sk-xxx"
         ... )
-        >>> await enricher.aextract(table_units)
-        >>> # Fields auto-populated:
-        >>> print(table_units[0].caption)
-        >>> print(table_units[0].embedding_content)
+        >>> 
+        >>> # Production (recommended) - judge all + enrich critical only
+        >>> await enricher.aextract(tables, mode=TableEnrichMode.CRITICAL_ONLY)
+        >>> 
+        >>> # Development - judge all + enrich all
+        >>> await enricher.aextract(tables, mode=TableEnrichMode.ALL)
+        >>> 
+        >>> # Filter critical tables
+        >>> critical = [t for t in tables 
+        ...             if t.metadata.custom.get("table", {}).get("is_data_critical")]
     """
     
     def __init__(self, llm_uri: str, api_key: str = None, normalize_table: bool = False):
@@ -59,22 +97,92 @@ class TableEnricher(BaseExtractor):
         # Do NOT create shared conversation here - it will cause context pollution
         # Each table should use its own conversation instance
     
-    async def aextract(self, units: list, max_concurrent: int = 3) -> list:
+    async def aextract(
+        self, 
+        units: list, 
+        mode: TableEnrichMode = TableEnrichMode.CRITICAL_ONLY,
+        max_concurrent: int = 3
+    ) -> list:
         """
-        Extract enrichment data and auto-populate TableUnit fields
+        Enrich tables: judge is_data_critical + generate caption / embedding_content
         
-        Override base class to handle caption field specially:
-        - embedding_content → unit.embedding_content (handled by base class)
-        - caption → unit.caption (special handling for TableUnit)
+        Workflow:
+        1. Judge all tables for is_data_critical (write to metadata.custom["table"])
+        2. Based on mode, decide enrichment scope:
+           - TableEnrichMode.ALL: Enrich all tables
+           - TableEnrichMode.CRITICAL_ONLY: Only enrich data-critical tables (recommended)
+        
+        Args:
+            units: List of TableUnits
+            mode: Enrichment mode, default CRITICAL_ONLY (recommended for production)
+            max_concurrent: Maximum concurrent LLM requests
+            
+        Returns:
+            Processed TableUnit list (all tables, but only some enriched)
+            
+        Note:
+            - All tables will be judged for is_data_critical (written to metadata.custom["table"])
+            - Users can filter tables based on metadata.custom["table"]["is_data_critical"]
+            
+        Usage:
+            # Production (recommended)
+            from zag.extractors import TableEnricher, TableEnrichMode
+            enricher = TableEnricher(llm_uri="bailian/qwen-plus", api_key="sk-xxx")
+            tables = await enricher.aextract(tables)  # Default CRITICAL_ONLY
+            
+            # Development/debugging
+            tables = await enricher.aextract(tables, mode=TableEnrichMode.ALL)
+            
+            # Filter critical tables
+            critical_tables = [
+                t for t in tables 
+                if t.metadata.custom.get("table", {}).get("is_data_critical")
+            ]
+        """
+        # 1. Judge all tables for is_data_critical
+        await self._batch_judge_critical(units, max_concurrent)
+        
+        # 2. Based on mode, decide which tables to enrich
+        if mode == TableEnrichMode.CRITICAL_ONLY:
+            units_to_enrich = [
+                u for u in units 
+                if isinstance(u, TableUnit) and 
+                u.metadata.custom.get("table", {}).get("is_data_critical", False)
+            ]
+        else:  # TableEnrichMode.ALL
+            units_to_enrich = [u for u in units if isinstance(u, TableUnit)]
+        
+        # 3. Enrich selected tables (caption + embedding_content)
+        if units_to_enrich:
+            await self._batch_enrich(units_to_enrich, max_concurrent)
+        
+        return units
+    
+    async def _batch_judge_critical(self, units: list, max_concurrent: int):
+        """Batch judge all tables for is_data_critical
         
         Args:
             units: List of TableUnits
             max_concurrent: Maximum concurrent LLM requests
-            
-        Returns:
-            List of result dicts (mostly empty after auto-population)
         """
-        # Call parent's aextract (handles embedding_content automatically)
+        table_units = [u for u in units if isinstance(u, TableUnit)]
+        if not table_units:
+            return
+        
+        # Process in batches
+        for i in range(0, len(table_units), max_concurrent):
+            batch = table_units[i : i + max_concurrent]
+            tasks = [self._judge_critical(unit) for unit in batch]
+            await asyncio.gather(*tasks, return_exceptions=True)
+    
+    async def _batch_enrich(self, units: list, max_concurrent: int):
+        """Batch generate caption + embedding_content for tables
+        
+        Args:
+            units: List of TableUnits to enrich
+            max_concurrent: Maximum concurrent LLM requests
+        """
+        # Use parent's aextract to generate caption + embedding_content
         results = await super().aextract(units, max_concurrent)
         
         # Special handling for caption: move from metadata.custom to unit.caption
@@ -87,6 +195,110 @@ class TableEnricher(BaseExtractor):
                         unit.caption = caption_value
         
         return results
+    
+    async def _judge_critical(self, table_unit: TableUnit) -> bool:
+        """Judge whether a single table is data-critical using LLM
+        
+        Args:
+            table_unit: TableUnit to analyze
+            
+        Returns:
+            True if table is data-critical, False otherwise
+            
+        Notes:
+            Data-critical tables are those containing:
+            - Important numerical data (rates, prices, metrics)
+            - Key business information (products, features, specifications)
+            - Comparison data between entities (product vs product, option vs option)
+            
+            NOT data-critical:
+            - Formatting/layout tables
+            - Simple lists that could be bullet points
+            - Metadata/navigation tables
+        """
+        if table_unit.df is None or table_unit.df.empty:
+            # Empty table is not critical
+            table_meta = table_unit.metadata.custom.setdefault("table", {})
+            table_meta["is_data_critical"] = False
+            table_meta["criticality_reason"] = "Empty table"
+            return False
+        
+        try:
+            import chak
+            from pydantic import BaseModel, Field
+            
+            table_preview = self._format_table_for_llm(table_unit.df, max_rows=3)
+            
+            class TableCriticalityAnalysis(BaseModel):
+                is_critical: bool = Field(
+                    description="Whether this table contains critical data",
+                )
+                reason: str = Field(
+                    description="Brief explanation of why it's critical or not",
+                )
+            
+            prompt = f"""Analyze whether this table contains CRITICAL DATA that needs special processing.
+
+Table preview:
+{table_preview}
+
+A table is DATA-CRITICAL if it contains:
+✅ Quantitative data that users would query (numbers, percentages, amounts, measurements)
+✅ Structured information requiring precise retrieval (specifications, features, attributes)
+✅ Comparison data between entities (product vs product, option vs option)
+✅ Reference information with business value (rules, thresholds, limits, requirements)
+
+A table is NOT data-critical if:
+❌ Document navigation or structure (table of contents, page numbers, section indexes)
+❌ Pure metadata without business value (version info, timestamps, author names)
+❌ Status or progress indicators (checkmarks, completion markers, read/unread flags)
+❌ Decorative or formatting elements (simple lists that could be bullets, layout tables)
+
+Key question: Would a user specifically search for and retrieve this data to answer a business question?
+- If YES → Mark as critical
+- If NO (just navigation/structure/metadata) → Mark as NOT critical
+
+Based on the table preview above, is this table data-critical?
+"""
+            
+            conv = chak.Conversation(self.llm_uri, api_key=self.api_key)
+            analysis = await conv.asend(prompt, returns=TableCriticalityAnalysis)
+            
+            is_critical = analysis.is_critical
+            try:
+                if table_unit.metadata is not None:
+                    table_meta = table_unit.metadata.custom.setdefault("table", {})
+                    table_meta["is_data_critical"] = is_critical
+                    table_meta["criticality_reason"] = analysis.reason
+            except Exception:
+                pass
+            
+            return is_critical
+            
+        except Exception:
+            # On error, assume critical to be safe
+            try:
+                table_meta = table_unit.metadata.custom.setdefault("table", {})
+                table_meta["is_data_critical"] = True
+                table_meta["criticality_reason"] = "Error during judgment, assumed critical"
+            except Exception:
+                pass
+            return True
+    
+    def _format_table_for_llm(self, df: Any, max_rows: int = 3) -> str:
+        """Format DataFrame into a JSON-like preview string for LLM prompts"""
+        import json
+        
+        try:
+            sample_df = df.head(max_rows)
+            preview = {
+                "columns": df.columns.tolist(),
+                "row_count": len(df),
+                "sample_rows": sample_df.values.tolist(),
+            }
+            return json.dumps(preview, ensure_ascii=False, indent=2)
+        except Exception:
+            return "{}"
     
     async def _extract_from_unit(self, unit) -> Dict:
         """
@@ -343,11 +555,13 @@ Caption:"""
             # Ensure caption is not empty
             if not caption or not caption.strip():
                 # Fallback if LLM returned empty
-                return f"Table with columns: {', '.join(df.columns[:3])}"
+                col_names = [str(c) for c in df.columns[:3]]
+                return f"Table with columns: {', '.join(col_names)}"
             return caption
         except Exception:
             # Fallback: generate simple caption from columns
-            return f"Table with columns: {', '.join(df.columns[:3])}"
+            col_names = [str(c) for c in df.columns[:3]]
+            return f"Table with columns: {', '.join(col_names)}"
     
     @retry(
         stop=stop_after_attempt(3),
@@ -379,22 +593,48 @@ Caption:"""
         # Prepare comprehensive table data
         table_data = self._dataframe_to_dict(df, max_rows=5)
         
-        prompt = f"""Convert the following table into a DETAILED natural language description suitable for semantic search.
+        prompt = f"""Create a search-optimized description of this table for semantic retrieval.
 
-Table Caption: {caption}
+TABLE CAPTION: {caption}
 
-Table Data:
+TABLE DATA PREVIEW (first 3 rows):
 {table_data}
 
-Requirements:
-- Use the SAME LANGUAGE as the table content (do NOT translate)
-- Start with the caption
-- List ALL column names
-- Describe the FIRST 3-5 ROWS with COMPLETE details from ALL columns
-- Use natural, flowing sentences
-- Make it suitable for vector search (semantic matching)
-- Include ALL data values, do NOT omit or summarize
-- Format example: "Table: [Caption]. This table contains columns: [列1], [列2], [列3]. The data includes: Row 1 - [列1]: [值], [列2]: [值]..."
+INSTRUCTIONS:
+1. **Purpose** (1 sentence): State what this table compares or shows.
+
+2. **Structure** (1 sentence): Briefly explain column meanings and groupings.
+
+3. **Key Values** (MOST IMPORTANT - extract 8-12 critical data points):
+   For each important data point, use this format: "[Row context] for [Column context] is [exact value]"
+   
+   Examples:
+   - "Owner occupied purchase loan has 90% maximum LTV"
+   - "Minimum FICO score for investment property cash-out refinance is 700"
+   - "Maximum loan amount for second home is $1.0MM"
+   
+   CRITICAL: Include specific numbers, percentages, scores, amounts, thresholds.
+   CRITICAL: Link row context + column context + exact value in ONE sentence.
+
+4. **Patterns** (1-2 sentences): Note important relationships or trends.
+
+REQUIREMENTS:
+- Use the SAME LANGUAGE as the table content
+- Keep all original values unchanged
+- Focus on data points most likely to be queried
+- Make explicit connections between conditions and values
+
+OUTPUT FORMAT:
+Purpose: [1 sentence about what this table shows]
+
+Structure: [1 sentence about column organization]
+
+Key Data:
+- [Row meaning] for [Column meaning] is [exact value]
+- [Another critical data point with full context]
+- [Continue for 8-12 most important points]
+
+Patterns: [1-2 sentences about trends or rules]
 
 Description:"""
         

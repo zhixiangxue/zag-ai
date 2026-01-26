@@ -52,7 +52,6 @@ from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from zag.splitters import MarkdownHeaderSplitter, RecursiveMergingSplitter
 from zag.parsers import TableParser
-from zag.extractors import TableExtractor
 from zag.embedders import Embedder
 from zag.storages.vector import ChromaVectorStore
 from zag.indexers import VectorIndexer

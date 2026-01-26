@@ -438,7 +438,7 @@ class MinerUReader(BaseReader):
             file_hash = calculate_string_hash(info.source)
         
         return DocumentMetadata(
-            source=info.source,
+            source=str(info.source),  # Ensure source is string, not Path object
             source_type=info.source_type.value,
             file_type=info.file_type.value if info.file_type else "unknown",
             file_name=Path(info.source).name if info.source_type.value == "local" else None,

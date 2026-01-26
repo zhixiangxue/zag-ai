@@ -60,7 +60,7 @@ from .splitters.base import BaseSplitter
 
 # Extractors
 from .extractors.base import BaseExtractor
-from .extractors import TableExtractor, StructuredExtractor, KeywordExtractor
+from .extractors import TableSummarizer, StructuredExtractor, KeywordExtractor
 
 # Embedders
 from .embedders import Embedder
@@ -103,7 +103,7 @@ __all__ = [
     "BaseSplitter",
     # Extractors
     "BaseExtractor",
-    "TableExtractor",
+    "TableSummarizer",
     "StructuredExtractor",
     "KeywordExtractor",
     # Embedders

@@ -171,25 +171,34 @@ class SourceUtils:
         """Detect if source is URL or local path"""
         try:
             result = urlparse(source)
+            # Check for HTTP/HTTPS/FTP URLs
             if result.scheme and result.netloc and result.scheme in ('http', 'https', 'ftp'):
                 return SourceType.URL
+            # Check for file:// URLs
             elif result.scheme == 'file':
                 return SourceType.LOCAL
+            # Check for Windows absolute paths (e.g., C:\, c:/, D:\)
+            elif result.scheme and len(result.scheme) == 1 and result.scheme.isalpha():
+                # Single letter scheme is likely a Windows drive letter
+                return SourceType.LOCAL
             else:
-                # No scheme, treat as local path
+                # No scheme or unrecognized scheme, treat as local path
                 return SourceType.LOCAL
         except Exception:
-            return SourceType.UNKNOWN
+            # If parsing fails, assume local path
+            return SourceType.LOCAL
     
     @staticmethod
     def _validate_local(source: str) -> SourceInfo:
         """Validate local file path"""
+        # Convert to Path object for validation, but keep original string for source field
+        source_str = str(source)  # Ensure source is string, even if Path object passed in
         path = Path(source)
         
         # Check existence
         if not path.exists():
             return SourceInfo(
-                source=source,
+                source=source_str,
                 source_type=SourceType.LOCAL,
                 is_valid=False,
                 error_message=f"File not found: {source}"
@@ -197,7 +206,7 @@ class SourceUtils:
         
         if not path.is_file():
             return SourceInfo(
-                source=source,
+                source=source_str,
                 source_type=SourceType.LOCAL,
                 is_valid=False,
                 error_message=f"Path is not a file: {source}"
@@ -208,7 +217,7 @@ class SourceUtils:
         file_type = SourceUtils.EXT_TO_TYPE.get(file_ext, FileType.UNKNOWN)
         
         return SourceInfo(
-            source=source,
+            source=source_str,
             source_type=SourceType.LOCAL,
             is_valid=True,
             file_type=file_type,

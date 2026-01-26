@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test Enhanced TableExtractor - Simple Version
+Test Enhanced TableSummarizer - Simple Version
 
 Tests:
 1. TableUnit: Generate embedding_content from json_data
@@ -14,7 +14,7 @@ import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 
-from zag.extractors import TableExtractor
+from zag.extractors import TableSummarizer
 from zag.parsers import TableParser
 from zag.schemas.unit import TextUnit, TableUnit
 from zag.schemas import UnitMetadata
@@ -76,7 +76,7 @@ async def test_tableunit():
     print(f"  embedding_content: {table_unit.embedding_content}")
     
     # Extract
-    extractor = TableExtractor(
+    extractor = TableSummarizer(
         llm_uri=f"bailian/{LLM_MODEL}",
         api_key=API_KEY
     )
@@ -113,7 +113,7 @@ async def test_textunit_en():
     print(f"  embedding_content: {text_unit.embedding_content}")
     
     # Extract
-    extractor = TableExtractor(
+    extractor = TableSummarizer(
         llm_uri=f"bailian/{LLM_MODEL}",
         api_key=API_KEY
     )
@@ -152,7 +152,7 @@ async def test_textunit_cn():
     print(f"  Has tables: Yes (Chinese)")
     
     # Extract
-    extractor = TableExtractor(
+    extractor = TableSummarizer(
         llm_uri=f"bailian/{LLM_MODEL}",
         api_key=API_KEY
     )
@@ -191,7 +191,7 @@ async def test_mixed_units():
     print(f"  TableUnit: {len(table_units)}")
     
     # Extract from all
-    extractor = TableExtractor(
+    extractor = TableSummarizer(
         llm_uri=f"bailian/{LLM_MODEL}",
         api_key=API_KEY
     )
@@ -215,7 +215,7 @@ async def test_mixed_units():
 
 async def main():
     print("=" * 70)
-    print("Enhanced TableExtractor Test")
+    print("Enhanced TableSummarizer Test")
     print("=" * 70)
     
     if not API_KEY:

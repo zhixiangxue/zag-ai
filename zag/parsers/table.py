@@ -1,8 +1,18 @@
-"""
-Table parser for extracting and converting Markdown tables to TableUnits
+"""Table parser for extracting tables from raw text into TableUnits.
+
+This module defines TableParser, which is responsible for:
+- Detecting tables from raw text (Markdown / HTML)
+- Converting table text into a pandas DataFrame
+- Wrapping results into TableUnit objects
+
+Design principles:
+- Core input is always plain text (str)
+- Optional metadata/doc_id can be passed explicitly from callers
+- Parser does NOT depend on TextUnit for its core logic
+- A thin adapter is provided for TextUnit-based pipelines
 """
 
-from typing import Optional
+from typing import Any, Optional
 import re
 from uuid import uuid4
 
@@ -11,340 +21,271 @@ from ..schemas import UnitMetadata
 
 
 class TableParser:
-    """
-    Parse Markdown tables from TextUnit and convert to TableUnit
-    
-    Features:
-    - Extract Markdown tables from TextUnit.content
-    - Convert to pandas DataFrame (mandatory)
-    - Inherit full metadata from TextUnit
-    - Establish bidirectional relations using add_reference
-    - Optional: Filter data-critical tables using LLM
-    
-    Example:
-        >>> # Basic usage (no filtering)
+    """Parse tables from text and convert to TableUnit.
+
+    Core responsibilities:
+    - Accept raw text (Markdown/HTML/mixed)
+    - Extract table segments from the text
+    - Parse each table into a pandas DataFrame
+    - Create TableUnit instances with optional metadata/doc_id
+
+    Usage (string-based):
         >>> parser = TableParser()
-        >>> table_units = parser.parse([text_unit])
-        
-        >>> # With data-critical filtering (async)
-        >>> parser = TableParser(
-        ...     llm_uri="bailian/qwen-plus",
-        ...     api_key="sk-xxx"
-        ... )
-        >>> critical_tables = await parser.aparse(
-        ...     text_units=[text_unit],
-        ...     filter_critical=True
-        ... )
-        
-        >>> # Sync filtering will raise error
-        >>> parser.parse([text_unit], filter_critical=True)  # ValueError!
-    
+        >>> tables = parser.parse(text, metadata=unit_metadata, doc_id=doc_id)
+
+    Usage (TextUnit-based convenience):
+        >>> parser = TableParser()
+        >>> tables = parser.parse_from_unit(text_unit)
+
     Notes:
         - Only parses standard Markdown tables (with header separator row)
+        - HTML tables are detected via BeautifulSoup if available
         - Does not generate embedding_content or caption (use TableEnricher)
-        - TextUnit content remains unchanged (no replacement)
-        - filter_critical requires async execution (use aparse)
+        - Does not judge is_data_critical (use TableEnricher)
+        - Does not modify original text or manage cross-unit references
     """
-    
-    # Markdown table pattern
+
+    # Markdown table pattern (same as TextSplitter, TableSplitter)
     TABLE_PATTERN = re.compile(
-        r'(\|.+\|[\r\n]+\|[\s\-:|]+\|[\r\n]+(?:\|.+\|[\r\n]*)+)',
-        re.MULTILINE
+        r"(\|.+\|[\r\n]+\|[\s\-:|]+\|[\r\n]+(?:\|.+\|[\r\n]*)+)",
+        re.MULTILINE,
     )
-    
-    def __init__(self, llm_uri: str = None, api_key: str = None):
-        """
-        Initialize TableParser
-        
+
+    # ------------------------------------------------------------------
+    # Core text-based parsing API
+    # ------------------------------------------------------------------
+    def parse(
+        self,
+        text: str,
+        metadata: UnitMetadata | None = None,
+        doc_id: str | None = None,
+    ) -> list[TableUnit]:
+        """Parse tables from raw text and return TableUnits.
+
+        This is the core API which works purely on strings. It can be used
+        independently of any zag-specific unit types. Callers may optionally
+        provide metadata/doc_id to be attached to each created TableUnit.
+
         Args:
-            llm_uri: LLM URI for filtering (e.g., "bailian/qwen-plus")
-            api_key: API key for LLM provider
-        """
-        self.llm_uri = llm_uri
-        self.api_key = api_key
-    
-    def parse_from_unit(self, text_unit: TextUnit) -> list[TableUnit]:
-        """
-        Parse tables from TextUnit and create TableUnits with complete information
-        
-        Args:
-            text_unit: TextUnit containing Markdown tables
-        
+            text: Raw text that may contain Markdown and/or HTML tables
+            metadata: Optional UnitMetadata to be copied to each TableUnit
+            doc_id: Optional document id to attach to each TableUnit
+
         Returns:
-            List of TableUnits with:
-            - content: Original Markdown table
-            - df: pandas DataFrame (mandatory)
-            - metadata: Full inheritance from TextUnit
-            - Bidirectional relations established via add_reference
-        
-        Note:
-            TextUnit.content remains unchanged (no replacement)
+            List of TableUnit instances extracted from the text
         """
-        content = text_unit.content
-        if not content:
+
+        if not text:
             return []
-        
-        # Find all tables
-        matches = self.TABLE_PATTERN.findall(content)
-        if not matches:
-            return []
-        
-        table_units = []
-        
-        for table_text in matches:
-            # Parse to DataFrame
+
+        table_units: list[TableUnit] = []
+
+        # 1. Markdown tables
+        md_matches = self.TABLE_PATTERN.findall(text)
+        for table_text in md_matches:
             df = self._parse_markdown_to_dataframe(table_text)
             if df is None or df.empty:
                 continue
-            
-            # Create TableUnit with full metadata inheritance
+
+            unit_metadata = (
+                metadata.model_copy(deep=True) if metadata is not None else UnitMetadata()
+            )
+            table_meta = unit_metadata.custom.setdefault("table", {})
+            table_meta["source_format"] = "markdown"
+            table_meta["row_count"] = len(df)
+            table_meta["column_count"] = len(df.columns)
+
             table_unit = TableUnit(
                 unit_id=str(uuid4()),
-                content=table_text.strip(),  # Original Markdown
-                df=df,  # Mandatory pandas DataFrame
-                metadata=text_unit.metadata.model_copy(deep=True) if text_unit.metadata else UnitMetadata()
+                content=table_text.strip(),
+                df=df,
+                metadata=unit_metadata,
             )
-            
-            # Inherit doc_id
-            if hasattr(text_unit, 'doc_id') and text_unit.doc_id:
-                table_unit.doc_id = text_unit.doc_id
-            
-            # Establish bidirectional relation
-            text_unit.add_reference(table_unit)
-            
+            if doc_id:
+                table_unit.doc_id = doc_id
+
             table_units.append(table_unit)
-        
+
+        # 2. HTML tables (only if BeautifulSoup is available)
+        html_tables = self._extract_html_tables(text)
+        for table_html in html_tables:
+            is_complex = self._detect_html_table_complexity(table_html)
+            df = self._convert_html_to_dataframe(table_html)
+            if df is None or df.empty:
+                continue
+
+            unit_metadata = (
+                metadata.model_copy(deep=True) if metadata is not None else UnitMetadata()
+            )
+            table_meta = unit_metadata.custom.setdefault("table", {})
+            table_meta["source_format"] = "html"
+            table_meta["row_count"] = len(df)
+            table_meta["column_count"] = len(df.columns)
+            table_meta["is_complex"] = is_complex
+
+            table_unit = TableUnit(
+                unit_id=str(uuid4()),
+                content=table_html.strip(),
+                df=df,
+                metadata=unit_metadata,
+            )
+            if doc_id:
+                table_unit.doc_id = doc_id
+
+            table_units.append(table_unit)
+
         return table_units
-    
-    def _parse_markdown_to_dataframe(self, table_text: str) -> Optional['pd.DataFrame']:
+
+    # ------------------------------------------------------------------
+    # TextUnit-based convenience API
+    # ------------------------------------------------------------------
+    def parse_from_unit(self, text_unit: TextUnit) -> list[TableUnit]:
+        """Parse tables from a TextUnit.
+
+        This is a thin convenience wrapper around :meth:`parse` that
+        preserves metadata/doc_id from the TextUnit.
+
+        Args:
+            text_unit: TextUnit containing text with tables
+
+        Returns:
+            List of TableUnits created from the TextUnit content
         """
-        Parse Markdown table text to pandas DataFrame
-        
+
+        return self.parse(
+            text=text_unit.content or "",
+            metadata=text_unit.metadata,
+            doc_id=getattr(text_unit, "doc_id", None),
+        )
+
+    # ------------------------------------------------------------------
+    # Low-level parsing helpers
+    # ------------------------------------------------------------------
+    def _extract_html_tables(self, text: str) -> list[str]:
+        """Extract all <table>...</table> snippets from text.
+
+        BeautifulSoup is used when available. If it is not installed, this
+        method returns an empty list and HTML tables will simply be ignored.
+        """
+
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:  # pragma: no cover - optional dependency
+            return []
+
+        soup = BeautifulSoup(text, "html.parser")
+        return [str(table) for table in soup.find_all("table")]
+
+    def _parse_markdown_to_dataframe(self, table_text: str) -> "Any | None":
+        """Parse a Markdown table into a pandas DataFrame.
+
         Args:
             table_text: Markdown table as string
-        
+
         Returns:
-            pandas DataFrame, or None if invalid
+            pandas DataFrame, or None if parsing fails
         """
+
         try:
             import pandas as pd
-        except ImportError:
+        except ImportError as exc:  # pragma: no cover - import guard
             raise ImportError(
                 "pandas is required for TableParser. "
                 "Install it with: pip install pandas"
-            )
-        
-        lines = [line.strip() for line in table_text.strip().split('\n') if line.strip()]
-        
-        if len(lines) < 3:  # Need at least header, separator, and one data row
+            ) from exc
+
+        lines = [line.strip() for line in table_text.strip().split("\n") if line.strip()]
+        if len(lines) < 3:
+            # Need at least header, separator, and one data row
             return None
-        
+
         # Parse header row
         header_line = lines[0]
-        headers = [cell.strip() for cell in header_line.split('|')[1:-1]]  # Remove leading/trailing |
-        
+        headers = [cell.strip() for cell in header_line.split("|")[1:-1]]
         if not headers:
             return None
-        
-        # Skip separator row (lines[1])
-        
-        # Parse data rows
-        rows = []
+
+        # Parse data rows (skip separator row at index 1)
+        rows: list[list[str]] = []
         for line in lines[2:]:
-            cells = [cell.strip() for cell in line.split('|')[1:-1]]
-            if len(cells) == len(headers):  # Only include valid rows
+            cells = [cell.strip() for cell in line.split("|")[1:-1]]
+            if len(cells) == len(headers):
                 rows.append(cells)
-        
+
         if not rows:
             return None
-        
-        # Create DataFrame (allow duplicate column names to preserve original semantics)
+
         try:
             df = pd.DataFrame(rows, columns=headers)
             return df
         except Exception:
             return None
-    
-    def parse(self, text_units: list[TextUnit], filter_critical: bool = False) -> list[TableUnit]:
+
+    def _detect_html_table_complexity(self, table_html: str) -> bool:
+        """Detect whether an HTML table is structurally complex.
+
+        Complexity here is defined as the presence of merged cells
+        (rowspan/colspan > 1) or multi-row headers. This is a purely
+        structural notion and does not involve any semantic reasoning.
         """
-        Parse tables from multiple TextUnits (synchronous)
-        
-        Args:
-            text_units: List of TextUnits
-            filter_critical: If True, raises error (use aparse() instead)
-        
-        Returns:
-            Flattened list of all TableUnits
-        
-        Raises:
-            ValueError: If filter_critical=True (async required for LLM filtering)
-        
-        Note:
-            For data-critical filtering, use aparse() with filter_critical=True
-        """
-        if filter_critical:
-            raise ValueError(
-                "filter_critical=True requires async execution. "
-                "Please use aparse() instead of parse()."
-            )
-        
-        all_tables = []
-        for unit in text_units:
-            if isinstance(unit, TextUnit):
-                tables = self.parse_from_unit(unit)
-                all_tables.extend(tables)
-        return all_tables
-    
-    async def aparse(self, text_units: list[TextUnit], filter_critical: bool = False, max_concurrent: int = 3) -> list[TableUnit]:
-        """
-        Parse tables from multiple TextUnits (asynchronous with optional filtering)
-        
-        Args:
-            text_units: List of TextUnits
-            filter_critical: If True, use LLM to filter data-critical tables only
-            max_concurrent: Maximum concurrent LLM requests (only used if filter_critical=True)
-        
-        Returns:
-            Flattened list of TableUnits (filtered if filter_critical=True)
-        
-        Note:
-            - If filter_critical=False, returns all parsed tables
-            - If filter_critical=True, uses LLM to filter data-critical tables only
-            - Requires llm_uri and api_key to be set for filtering
-        """
-        import asyncio
-        
-        all_tables = []
-        
-        # First, parse all tables synchronously
-        for unit in text_units:
-            if isinstance(unit, TextUnit):
-                tables = self.parse_from_unit(unit)
-                all_tables.extend(tables)
-        
-        # If filtering is disabled or LLM not configured, return all tables
-        if not filter_critical or not self.llm_uri:
-            return all_tables
-        
-        # Filter data-critical tables using LLM (with concurrency control)
-        async def filter_batch(batch: list[TableUnit]) -> list[TableUnit]:
-            tasks = [self._is_data_critical(table) for table in batch]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Keep only data-critical tables (handle exceptions gracefully)
-            filtered = []
-            for table, is_critical in zip(batch, results):
-                if isinstance(is_critical, Exception):
-                    # If LLM fails, keep the table (fail-open)
-                    filtered.append(table)
-                elif is_critical:
-                    filtered.append(table)
-            
-            return filtered
-        
-        # Process in batches to control concurrency
-        critical_tables = []
-        for i in range(0, len(all_tables), max_concurrent):
-            batch = all_tables[i:i + max_concurrent]
-            batch_results = await filter_batch(batch)
-            critical_tables.extend(batch_results)
-        
-        return critical_tables
-    
-    async def _is_data_critical(self, table_unit: TableUnit) -> bool:
-        """
-        Use LLM to determine if a table contains critical data
-        
-        Args:
-            table_unit: TableUnit to analyze
-        
-        Returns:
-            True if table is data-critical, False otherwise
-        
-        Note:
-            Data-critical tables are those containing:
-            - Important numerical data (rates, prices, metrics)
-            - Key business information (products, features, specifications)
-            - Comparison data between options
-            
-            NOT data-critical:
-            - Formatting/layout tables
-            - Simple lists that could be bullet points
-            - Metadata/navigation tables
-        """
-        # Check entry conditions
-        if not self.llm_uri:
-            return True  # Fail-open: keep table if LLM not configured
-        
-        if table_unit.df is None or table_unit.df.empty:
-            return True  # Fail-open: keep table if no data
-        
+
         try:
-            import chak
-            from pydantic import BaseModel, Field
-            
-            # Prepare table preview
-            table_preview = self._format_table_for_llm(table_unit.df, max_rows=3)
-            
-            # Define structured output
-            class TableCriticalityAnalysis(BaseModel):
-                is_critical: bool = Field(description="Whether this table contains critical data")
-                reason: str = Field(description="Brief explanation of why it's critical or not")
-            
-            # Build prompt
-            prompt = f"""Analyze whether this table contains CRITICAL DATA that needs special processing.
+            from bs4 import BeautifulSoup
+        except ImportError:  # pragma: no cover - optional dependency
+            return False
 
-Table preview:
-{table_preview}
+        soup = BeautifulSoup(table_html, "html.parser")
 
-A table is DATA-CRITICAL if it contains:
-✅ Quantitative data that users would query (numbers, percentages, amounts, measurements)
-✅ Structured information requiring precise retrieval (specifications, features, attributes)
-✅ Comparison data between entities (product vs product, option vs option)
-✅ Reference information with business value (rules, thresholds, limits, requirements)
+        # 1) Check for merged cells
+        for cell in soup.find_all(["td", "th"]):
+            rowspan = cell.get("rowspan")
+            colspan = cell.get("colspan")
+            try:
+                if (rowspan and int(rowspan) > 1) or (colspan and int(colspan) > 1):
+                    return True
+            except ValueError:
+                # Non-integer attributes are treated as complex to be safe
+                return True
 
-A table is NOT data-critical if:
-❌ Document navigation or structure (table of contents, page numbers, section indexes)
-❌ Pure metadata without business value (version info, timestamps, author names)
-❌ Status or progress indicators (checkmarks, completion markers, read/unread flags)
-❌ Decorative or formatting elements (simple lists that could be bullets, layout tables)
+        # 2) Check for multi-row header (thead with multiple tr)
+        thead = soup.find("thead")
+        if thead is not None:
+            header_rows = thead.find_all("tr", recursive=False)
+            if len(header_rows) > 1:
+                return True
 
-Key question: Would a user specifically search for and retrieve this data to answer a business question?
-- If YES → Mark as critical
-- If NO (just navigation/structure/metadata) → Mark as NOT critical
+        return False
 
-Based on the table preview above, is this table data-critical?
-"""
-            
-            # Call LLM
-            conv = chak.Conversation(self.llm_uri, api_key=self.api_key)
-            analysis = await conv.asend(prompt, returns=TableCriticalityAnalysis)
-            
-            return analysis.is_critical
-            
-        except Exception as e:
-            # Fail-open: if LLM fails, keep the table
-            return True
-    
-    def _format_table_for_llm(self, df: 'pd.DataFrame', max_rows: int = 3) -> str:
-        """
-        Format DataFrame for LLM analysis
-        
+    def _convert_html_to_dataframe(self, table_html: str) -> "Any | None":
+        """Convert an HTML <table>...</table> snippet into a pandas DataFrame.
+
+        This is a best-effort conversion based on pandas.read_html, which in
+        turn relies on an HTML parser such as lxml or html5lib. For complex
+        tables with multiple header rows or merged cells (rowspan/colspan),
+        the resulting DataFrame may be a flattened approximation rather than
+        a perfect structural reconstruction. The original HTML is always
+        preserved in TableUnit.content for full-fidelity use cases.
+
         Args:
-            df: pandas DataFrame
-            max_rows: Maximum rows to include in preview
-        
+            table_html: HTML table snippet as string
+
         Returns:
-            Formatted string representation
+            pandas DataFrame, or None if parsing fails
         """
-        import json
-        
-        # Use columns+rows structure to preserve duplicate column names
-        sample_df = df.head(max_rows)
-        preview = {
-            "columns": df.columns.tolist(),
-            "row_count": len(df),
-            "sample_rows": sample_df.values.tolist()
-        }
-        
-        return json.dumps(preview, ensure_ascii=False, indent=2)
+
+        try:
+            import pandas as pd
+        except ImportError as exc:  # pragma: no cover - import guard
+            raise ImportError(
+                "pandas is required for TableParser. "
+                "Install it with: pip install pandas"
+            ) from exc
+
+        try:
+            # read_html returns a list of DataFrames; take the first one
+            dfs = pd.read_html(table_html)
+            if not dfs:
+                return None
+            return dfs[0]
+        except Exception:
+            return None

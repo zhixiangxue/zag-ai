@@ -3,15 +3,16 @@ Extractors for extracting metadata from units
 """
 
 from .base import BaseExtractor
-from .table import TableExtractor
-from .table_enricher import TableEnricher
+from .table_summarizer import TableSummarizer
+from .table_enricher import TableEnricher, TableEnrichMode
 from .structured import StructuredExtractor
 from .keyword import KeywordExtractor
 
 __all__ = [
     "BaseExtractor",
-    "TableExtractor",
+    "TableSummarizer",
     "TableEnricher",
+    "TableEnrichMode",
     "StructuredExtractor",
     "KeywordExtractor",
 ]

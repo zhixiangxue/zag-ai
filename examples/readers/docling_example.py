@@ -118,11 +118,11 @@ def test_default_pipeline(pdf_path: str, output_dir: Path):
     print("\n[yellow]Running Test 1: Default Standard PDF Pipeline...[/yellow]")
     start_time = time.time()
     
-    # Use CPU to avoid MPS issues on macOS < 13.2
+    # Use AUTO to automatically detect best device (CUDA/CPU)
     pdf_options = PdfPipelineOptions()
     pdf_options.accelerator_options = AcceleratorOptions(
         num_threads=8,
-        device=AcceleratorDevice.CPU  # Force CPU to avoid MPS errors
+        device=AcceleratorDevice.AUTO  # Auto-detect CUDA or fallback to CPU
     )
     
     reader = DoclingReader(pdf_pipeline_options=pdf_options)

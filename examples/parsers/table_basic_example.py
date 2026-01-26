@@ -143,7 +143,7 @@ def main():
     print(f"✅ Optional placeholder replacement works")
     print()
     print("💡 Next steps:")
-    print("   1. Use TableExtractor to generate embedding_content (summaries)")
+    print("   1. Use TableSummarizer to generate embedding_content (summaries)")
     print("   2. Store both TextUnit and TableUnits to vector database")
     print("   3. Use table_ids for relation-based retrieval")
     print()
