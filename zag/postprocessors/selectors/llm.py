@@ -77,6 +77,46 @@ class LLMSelector(BasePostprocessor):
         
         return self._conversation
     
+    def _is_table_content(self, content: str) -> bool:
+        """
+        Detect if content is a table (HTML or Markdown).
+        
+        If content is a table, LLMSelector will skip processing and return as-is.
+        """
+        if not content:
+            return False
+        
+        content_str = str(content)
+        
+        # Detect HTML table (use BeautifulSoup for accurate parsing)
+        if '<table' in content_str.lower():
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(content_str, 'html.parser')
+                if soup.find('table'):
+                    return True
+            except ImportError:
+                # Fallback to simple string matching if BeautifulSoup is not available
+                if '<table' in content_str.lower() and '<tr' in content_str.lower():
+                    return True
+            except Exception:
+                # Use simple string matching as fallback if parsing fails
+                if '<table' in content_str.lower() and '<tr' in content_str.lower():
+                    return True
+        
+        # Detect Markdown table
+        # Feature: at least one line contains multiple | separators
+        lines = content_str.split('\n')
+        for line in lines:
+            # At least 2 | to be a table
+            if line.count('|') >= 2:
+                # Further check: if there's a separator line (e.g., |---|---|)
+                stripped = line.strip()
+                if '|' in stripped and '-' in stripped:
+                    return True
+        
+        return False
+    
     def _build_prompt(self, query: str, units: List[BaseUnit]) -> str:
         """Build prompt for LLM"""
         prompt_parts = [
@@ -114,6 +154,8 @@ class LLMSelector(BasePostprocessor):
         """
         Extract relevant passages from units (async version)
         
+        Table units (HTML/Markdown) are preserved as-is without LLM processing.
+        
         Args:
             query: User's query
             units: Units to process
@@ -121,6 +163,49 @@ class LLMSelector(BasePostprocessor):
         Returns:
             Units with extracted passages (irrelevant units removed)
         """
+        if not units:
+            return []
+        
+        # Separate table units and non-table units
+        table_units = []
+        non_table_units = []
+        
+        for unit in units:
+            if self._is_table_content(str(unit.content)):
+                table_units.append(unit)
+            else:
+                non_table_units.append(unit)
+        
+        # If all are tables, return directly
+        if not non_table_units:
+            return table_units
+        
+        # If no tables, process normally
+        if not table_units:
+            return await self._process_non_table_units(query, non_table_units)
+        
+        # Mixed case: process non-tables and merge
+        processed_units = await self._process_non_table_units(query, non_table_units)
+        
+        # Merge results: keep original order
+        result = []
+        unit_id_to_processed = {u.unit_id: u for u in processed_units}
+        unit_id_to_table = {u.unit_id: u for u in table_units}
+        
+        for original_unit in units:
+            if original_unit.unit_id in unit_id_to_table:
+                result.append(unit_id_to_table[original_unit.unit_id])
+            elif original_unit.unit_id in unit_id_to_processed:
+                result.append(unit_id_to_processed[original_unit.unit_id])
+        
+        return result
+    
+    async def _process_non_table_units(
+        self,
+        query: str,
+        units: List[BaseUnit]
+    ) -> List[BaseUnit]:
+        """Process non-table units (original LLM processing logic)"""
         if not units:
             return []
         
