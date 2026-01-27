@@ -70,7 +70,7 @@ async def run_complete_pipeline() -> None:
     print("[bold yellow]Step 1: Reading PDF with MinerUReader...[/bold yellow]")
     try:
         reader = MinerUReader()  # Use default hybrid-auto-engine backend
-        doc = reader.read(str(pdf_path))
+        doc = reader.read(pdf_path)  # Path object is now supported
         print(f"[green]✓[/green] PDF read successfully")
         print(f"  - Content length: {len(doc.content)} characters")
         print(f"  - Pages: {len(doc.pages)}")
@@ -82,7 +82,7 @@ async def run_complete_pipeline() -> None:
     # Step 3: Parse tables with TableParser
     print("[bold yellow]Step 2: Parsing tables with TableParser...[/bold yellow]")
     parser = TableParser()
-    unit_metadata = UnitMetadata(document=doc.metadata.model_dump())
+    unit_metadata = UnitMetadata(document=doc.metadata.model_dump_deep())  # Deep copy for safety
     table_units = parser.parse(
         text=doc.content,
         metadata=unit_metadata,

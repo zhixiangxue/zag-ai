@@ -40,6 +40,33 @@ class DocumentMetadata(BaseModel):
     model_config = {
         "arbitrary_types_allowed": True,
     }
+    
+    def model_dump_deep(self, **kwargs) -> dict[str, Any]:
+        """
+        Convert to dict with deep copy (safe for nested mutable objects)
+        
+        Use this when passing metadata to UnitMetadata or storing separately
+        to avoid shared references to nested mutable objects (like 'custom' dict).
+        
+        Example:
+            # Safe: deep copy prevents shared references
+            unit_metadata = UnitMetadata(
+                document=pdf_doc.metadata.model_dump_deep()
+            )
+            
+            # Unsafe: shallow copy may cause shared references
+            unit_metadata = UnitMetadata(
+                document=pdf_doc.metadata.model_dump()  # Don't use this!
+            )
+        
+        Args:
+            **kwargs: Additional arguments passed to model_dump()
+        
+        Returns:
+            Deep-copied dict representation
+        """
+        import copy
+        return copy.deepcopy(self.model_dump(**kwargs))
 
 
 class UnitMetadata(BaseModel):
@@ -151,3 +178,93 @@ class UnitMetadata(BaseModel):
     model_config = {
         "arbitrary_types_allowed": True,
     }
+    
+    def model_dump_deep(self, **kwargs) -> dict[str, Any]:
+        """
+        Convert to dict with deep copy (safe for nested mutable objects)
+        
+        Use this when storing or passing metadata separately to avoid
+        shared references to nested mutable objects (like 'custom' dict,
+        'keywords' list, or 'document' dict).
+        
+        Example:
+            # Safe: deep copy prevents shared references
+            metadata_copy = unit.metadata.model_dump_deep()
+            
+            # Unsafe: shallow copy may cause shared references
+            metadata_copy = unit.metadata.model_dump()  # Don't use this!
+        
+        Args:
+            **kwargs: Additional arguments passed to model_dump()
+        
+        Returns:
+            Deep-copied dict representation
+        """
+        import copy
+        return copy.deepcopy(self.model_dump(**kwargs))
+    
+    def to_json_safe(self, **kwargs) -> dict[str, Any]:
+        """
+        Convert to JSON-safe dict (handles NaN, inf, numpy types, etc.)
+        
+        This method ensures all values are JSON-serializable by:
+        - Converting numpy types to Python types
+        - Converting NaN/inf to None
+        - Converting all dict keys to strings
+        - Recursively processing nested structures
+        
+        Use this when storing to vector databases (Qdrant, Milvus, etc.)
+        or any system requiring strict JSON compatibility.
+        
+        Example:
+            # For vector store payload
+            payload["metadata"] = unit.metadata.to_json_safe()
+            
+            # For JSON serialization
+            json.dumps(unit.metadata.to_json_safe())
+        
+        Args:
+            **kwargs: Additional arguments passed to model_dump()
+        
+        Returns:
+            JSON-compatible dict (safe for Qdrant, Milvus, JSON, etc.)
+        """
+        import math
+        try:
+            import numpy as np
+            has_numpy = True
+        except ImportError:
+            has_numpy = False
+        
+        def convert_value(val):
+            """Recursively convert values to JSON-serializable types"""
+            if val is None:
+                return None
+            elif isinstance(val, (str, bool)):
+                return val
+            elif isinstance(val, (int, float)):
+                # Handle NaN and inf
+                if math.isnan(val) or math.isinf(val):
+                    return None  # Convert NaN/inf to None for safety
+                return val
+            elif has_numpy and isinstance(val, (np.integer, np.floating)):
+                # Convert numpy types to Python types
+                val_python = val.item()
+                # Handle NaN and inf from numpy
+                if math.isnan(val_python) or math.isinf(val_python):
+                    return None
+                return val_python
+            elif isinstance(val, (list, tuple)):
+                return [convert_value(v) for v in val]
+            elif isinstance(val, dict):
+                return {str(k): convert_value(v) for k, v in val.items()}
+            else:
+                # Fallback: convert to string
+                return str(val)
+        
+        try:
+            metadata_dict = self.model_dump(**kwargs)
+            return convert_value(metadata_dict)
+        except Exception:
+            # Ultimate fallback: return empty dict
+            return {}

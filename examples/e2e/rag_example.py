@@ -315,43 +315,74 @@ async def step3_process_tables(units, pdf_path):
     
     print(f"   ✅ Processed {len(units)} TextUnits")
     
-    # 3.2 Extract tables directly using CamelotReader
-    print("\nStep 3.2: Extracting TableUnits using CamelotReader...")
-    from zag.readers import CamelotReader
+    # 3.2 Read PDF with MinerUReader
+    print("\nStep 3.2: Reading PDF with MinerUReader...")
+    from zag.readers import MinerUReader
     
-    # Use Camelot to extract tables directly from PDF
-    camelot_reader = CamelotReader(flavor="lattice")  # Use lattice mode for bordered tables
-    camelot_doc = camelot_reader.read(str(pdf_path))
-    table_units = list(camelot_doc.units)  # Get TableUnits directly
+    mineru_reader = MinerUReader()  # Use default backend (hybrid-auto-engine)
+    pdf_doc = mineru_reader.read(pdf_path)  # Path object is now supported
+    print(f"   ✅ Read PDF successfully")
+    print(f"      Content length: {len(pdf_doc.content)} characters")
+    print(f"      Pages: {len(pdf_doc.pages)}")
     
-    print(f"   ✅ Extracted {len(table_units)} TableUnits using CamelotReader")
+    # 3.3 Parse tables with TableParser
+    print("\nStep 3.3: Parsing tables with TableParser...")
+    from zag.parsers import TableParser
+    from zag.schemas import UnitMetadata
+    
+    parser = TableParser()
+    unit_metadata = UnitMetadata(document=pdf_doc.metadata.model_dump_deep())  # Deep copy for safety
+    table_units = parser.parse(
+        text=pdf_doc.content,
+        metadata=unit_metadata,
+        doc_id=pdf_doc.doc_id,
+    )
+    print(f"   ✅ Parsed {len(table_units)} tables")
     
     if table_units:
-        # Show extracted table info
-        print("\n   Extracted tables:")
+        # Show parsed table info
+        print("\n   Parsed tables:")
         for i, table_unit in enumerate(table_units[:3], 1):  # Show first 3
+            meta_table = (table_unit.metadata.custom or {}).get("table", {})
             print(f"     {i}. unit_id: {table_unit.unit_id[:20]}...")
-            print(f"        page: {table_unit.metadata.page_numbers}")
-            if table_unit.df is not None:
-                print(f"        df shape: {table_unit.df.shape}")
-                print(f"        columns: {list(table_unit.df.columns)}")
+            print(f"        format: {meta_table.get('source_format', 'N/A')}")
+            print(f"        shape: {len(table_unit.df)} rows × {len(table_unit.df.columns)} columns")
+            print(f"        complex: {meta_table.get('is_complex', False)}")
         
-        # 3.3 Enrich TableUnits with caption and embedding_content
-        print("\nStep 3.3: Enriching TableUnits with LLM...")
+        # 3.4 Enrich TableUnits with LLM (caption + embedding_content + is_data_critical)
+        print("\nStep 3.4: Enriching TableUnits with LLM...")
+        from zag.extractors import TableEnrichMode
+        
         enricher = TableEnricher(
             llm_uri=LLM_URI,
-            api_key=API_KEY,
-            normalize_table=True  # Enable table structure normalization for complex tables
+            api_key=API_KEY
         )
-        await enricher.aextract(table_units)
-        print(f"   ✅ Enriched {len(table_units)} TableUnits")
+        enriched_tables = await enricher.aextract(
+            table_units,
+            mode=TableEnrichMode.CRITICAL_ONLY  # Judge all, enrich only critical tables
+        )
+        print(f"   ✅ Enriched {len(enriched_tables)} TableUnits")
         
-        # Show enriched table info
+        # Show enrichment results
         print("\n   Enriched tables:")
-        for i, table_unit in enumerate(table_units[:3], 1):  # Show first 3
-            print(f"     {i}. caption: {table_unit.caption}")
-            if table_unit.embedding_content:
-                print(f"        embedding_content: {table_unit.embedding_content[:80]}...")
+        critical_count = 0
+        for i, table_unit in enumerate(enriched_tables[:3], 1):  # Show first 3
+            meta_table = (table_unit.metadata.custom or {}).get("table", {})
+            is_critical = meta_table.get("is_data_critical", False)
+            if is_critical:
+                critical_count += 1
+            
+            print(f"     {i}. is_critical: {is_critical}")
+            if is_critical:
+                print(f"        caption: {table_unit.caption}")
+                if table_unit.embedding_content:
+                    print(f"        embedding_content: {table_unit.embedding_content[:80]}...")
+            else:
+                print(f"        reason: {meta_table.get('criticality_reason', 'N/A')}")
+        
+        # Use enriched tables
+        table_units = enriched_tables
+        print(f"\n   📊 Summary: {critical_count}/{len(table_units)} tables are data-critical")
     else:
         print("   ⚠️  No tables found in document")
 

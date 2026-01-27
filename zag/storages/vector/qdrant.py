@@ -462,7 +462,7 @@ class QdrantVectorStore(BaseVectorStore):
             }
             
             if unit.metadata:
-                payload["metadata"] = unit.metadata.model_dump()
+                payload["metadata"] = unit.metadata.to_json_safe()
             
             points.append(PointStruct(
                 id=self._unit_id_to_qdrant_id(unit.unit_id),
@@ -507,17 +507,12 @@ class QdrantVectorStore(BaseVectorStore):
                 "caption": unit.caption
             }
             
-            # Serialize DataFrame if exists
-            if hasattr(unit, 'df') and unit.df is not None:
-                try:
-                    payload["df_data"] = unit.df.to_dict(orient='records')
-                    payload["df_columns"] = list(unit.df.columns)
-                except Exception:
-                    # If serialization fails, skip (content will be used as fallback)
-                    pass
+            # Serialize DataFrame if exists (use json_data property for safety)
+            if hasattr(unit, 'json_data') and unit.json_data is not None:
+                payload["df_data"] = unit.json_data  # Already safe: tolist() done in property
             
             if unit.metadata:
-                payload["metadata"] = unit.metadata.model_dump()
+                payload["metadata"] = unit.metadata.to_json_safe()
             
             points.append(PointStruct(
                 id=self._unit_id_to_qdrant_id(unit.unit_id),
@@ -557,7 +552,7 @@ class QdrantVectorStore(BaseVectorStore):
             }
             
             if unit.metadata:
-                payload["metadata"] = unit.metadata.model_dump()
+                payload["metadata"] = unit.metadata.to_json_safe()
             
             points.append(PointStruct(
                 id=self._unit_id_to_qdrant_id(unit.unit_id),

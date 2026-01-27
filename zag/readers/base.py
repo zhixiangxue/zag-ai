@@ -3,6 +3,8 @@ Base reader class for all readers
 """
 
 from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Union
 
 from ..schemas import BaseDocument
 
@@ -18,12 +20,12 @@ class BaseReader(ABC):
     """
     
     @abstractmethod
-    def read(self, source: str) -> BaseDocument:
+    def read(self, source: Union[str, Path]) -> BaseDocument:
         """
         Read and parse a file
         
         Args:
-            source: File path (relative/absolute) or URL
+            source: File path (str or Path object, relative/absolute) or URL
             
         Returns:
             A Document object containing structured parsed results

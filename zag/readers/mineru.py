@@ -5,7 +5,7 @@ MinerU reader for high-accuracy PDF parsing
 import json
 import tempfile
 from pathlib import Path
-from typing import Any, Optional, Literal
+from typing import Any, Optional, Literal, Union
 
 from .base import BaseReader
 from ..schemas import BaseDocument, DocumentMetadata, Page
@@ -137,12 +137,12 @@ class MinerUReader(BaseReader):
         if backend in ["hybrid-http-client", "vlm-http-client"] and not server_url:
             raise ValueError(f"Backend '{backend}' requires server_url parameter")
     
-    def read(self, source: str) -> BaseDocument:
+    def read(self, source: Union[str, Path]) -> BaseDocument:
         """
         Read and parse a PDF file using MinerU
         
         Args:
-            source: File path (relative/absolute) or URL
+            source: File path (str or Path object, relative/absolute) or URL
             
         Returns:
             PDF document with markdown content and structured pages

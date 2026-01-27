@@ -282,8 +282,9 @@ class TableParser:
             ) from exc
 
         try:
-            # read_html returns a list of DataFrames; take the first one
-            dfs = pd.read_html(table_html)
+            # Wrap HTML string in StringIO to avoid FutureWarning
+            from io import StringIO
+            dfs = pd.read_html(StringIO(table_html))
             if not dfs:
                 return None
             return dfs[0]

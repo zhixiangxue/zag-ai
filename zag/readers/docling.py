@@ -3,7 +3,7 @@ Docling reader for advanced PDF understanding
 """
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -163,12 +163,12 @@ class DoclingReader(BaseReader):
                 )
             }
     
-    def read(self, source: str) -> BaseDocument:
+    def read(self, source: Union[str, Path]) -> BaseDocument:
         """
         Read and convert a file to PDF document with structured data
         
         Args:
-            source: File path (relative/absolute) or URL
+            source: File path (str or Path object, relative/absolute) or URL
             
         Returns:
             PDF document with markdown content and structured pages

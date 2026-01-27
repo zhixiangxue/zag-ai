@@ -444,15 +444,43 @@ class TableUnit(BaseUnit):
         Convert DataFrame to JSON-serializable format that preserves duplicate columns.
         
         Returns dict with:
-            - columns: List of column names (may contain duplicates)
-            - rows: List of row values as lists
+            - columns: List of column names (may contain duplicates, forced to strings)
+            - rows: List of row values as lists (numpy types converted, NaN/inf handled)
+        
+        This format is safe for serialization to JSON, Qdrant, Meilisearch, etc.
         """
         if self.df is None:
             return None
         try:
+            import math
+            
+            def sanitize_value(val):
+                """Convert value to JSON-safe type (handle NaN/inf)"""
+                if val is None:
+                    return None
+                elif isinstance(val, (str, bool)):
+                    return val
+                elif isinstance(val, (int, float)):
+                    if math.isnan(val) or math.isinf(val):
+                        return None  # Convert NaN/inf to None
+                    return val
+                else:
+                    # Fallback: try to convert
+                    try:
+                        converted = float(val) if not isinstance(val, str) else val
+                        if isinstance(converted, float) and (math.isnan(converted) or math.isinf(converted)):
+                            return None
+                        return converted
+                    except:
+                        return str(val)
+            
+            # Convert rows and sanitize values
+            rows = self.df.values.tolist()
+            safe_rows = [[sanitize_value(val) for val in row] for row in rows]
+            
             return {
-                "columns": self.df.columns.tolist(),
-                "rows": self.df.values.tolist()
+                "columns": [str(col) for col in self.df.columns],  # Force str for safety
+                "rows": safe_rows  # Sanitized rows
             }
         except Exception:
             return None

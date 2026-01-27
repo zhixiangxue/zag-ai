@@ -3,6 +3,7 @@ MarkItDown reader for converting various document formats
 """
 
 from pathlib import Path
+from typing import Union
 
 from markitdown import MarkItDown
 
@@ -51,12 +52,12 @@ class MarkItDownReader(BaseReader):
         """Initialize MarkItDown reader"""
         self._reader = MarkItDown()
     
-    def read(self, source: str) -> BaseDocument:
+    def read(self, source: Union[str, Path]) -> BaseDocument:
         """
         Read and convert a file to appropriate Document type
         
         Args:
-            source: File path (relative/absolute) or URL
+            source: File path (str or Path object, relative/absolute) or URL
             
         Returns:
             PDF or Markdown document based on file type
