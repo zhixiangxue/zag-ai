@@ -63,7 +63,12 @@ class CompressionExtractor:
         return len(self._encoder.encode(text))
     
     def _extract_html_tables(self, text: str) -> Tuple[str, List[str]]:
-        """Extract HTML tables and replace with placeholders"""
+        """Extract HTML tables and replace with placeholders
+        
+        ⚠️ WARNING: BeautifulSoup's str(soup) reformats HTML with added indentation/newlines,
+        which may increase token count by ~7% compared to original. This is a trade-off for
+        reliable table parsing. Future optimization: use regex to preserve exact formatting.
+        """
         soup = BeautifulSoup(text, 'html.parser')
         tables = []
         
