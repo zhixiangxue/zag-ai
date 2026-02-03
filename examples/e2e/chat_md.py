@@ -39,6 +39,7 @@ console = Console()
 
 # Use OS temp directory for cross-platform compatibility
 _CACHE_DIR = os.path.join(os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp", "zag_cache")
+print(f"Cache directory: {_CACHE_DIR}")
 cache = Cache(_CACHE_DIR)
 
 # Get API key from environment
