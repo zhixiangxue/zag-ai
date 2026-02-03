@@ -7,6 +7,7 @@ from .types import UnitType, RelationType, RetrievalSource
 from .metadata import DocumentMetadata, UnitMetadata
 from .document import BaseDocument, Page, PageableDocument
 from .unit import BaseUnit, UnitRegistry, UnitCollection, TextUnit, TableUnit, ImageUnit
+from .tree import TreeNode, DocTree, TreeRetrievalResult
 
 __all__ = [
     # Enums
@@ -28,4 +29,8 @@ __all__ = [
     "TextUnit",
     "TableUnit",
     "ImageUnit",
+    # Tree schemas
+    "TreeNode",
+    "DocTree",
+    "TreeRetrievalResult",
 ]

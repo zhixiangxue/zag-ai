@@ -7,6 +7,7 @@ from .table_summarizer import TableSummarizer
 from .table_enricher import TableEnricher, TableEnrichMode
 from .structured import StructuredExtractor
 from .keyword import KeywordExtractor
+from .compression import CompressionExtractor
 
 __all__ = [
     "BaseExtractor",
@@ -15,4 +16,5 @@ __all__ = [
     "TableEnrichMode",
     "StructuredExtractor",
     "KeywordExtractor",
+    "CompressionExtractor",
 ]
