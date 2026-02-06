@@ -35,7 +35,7 @@ from rich.table import Table
 
 from zag.readers import MinerUReader, MarkdownTreeReader
 from zag.extractors import CompressionExtractor
-from zag.schemas import DocTree
+from zag.schemas import DocTree, BaseUnit, ContentView, LODLevel
 
 # Load environment variables
 load_dotenv()
@@ -153,8 +153,7 @@ def process_pdf_document(
     shortlist_target: int = 60000,
     llm_uri: str = "openai/gpt-4o-mini",
     api_key: Optional[str] = None,
-    save_to_temp: bool = True,
-    verbose: bool = True
+    save_to_temp: bool = True
 ) -> Dict[str, any]:
     """Extract multi-layer representations from a PDF document.
     
@@ -165,14 +164,10 @@ def process_pdf_document(
         llm_uri: LLM URI for extraction and tree generation
         api_key: API key for LLM (defaults to OPENAI_API_KEY from env)
         save_to_temp: Whether to save outputs to temporary directory
-        verbose: Whether to print progress information
     
     Returns:
         Dict containing:
-            - t1_quick_check: str (Quick-Check layer content)
-            - t2_shortlist: str (Shortlist layer content)
-            - t3_tree: DocTree (Hierarchical tree structure)
-            - t4_original: str (Original document content)
+            - unit: BaseUnit with views containing all 4 layers
             - temp_dir: Optional[Path] (Temporary directory path if saved)
     """
     if api_key is None:
@@ -182,90 +177,74 @@ def process_pdf_document(
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF file not found: {pdf_path}")
     
-    if verbose:
-        console.print("\n" + "=" * 80)
-        console.print("[bold cyan]PDF Multi-Layer Extraction Pipeline[/bold cyan]")
-        console.print("=" * 80 + "\n")
+    console.print("\n" + "=" * 80)
+    console.print("[bold cyan]PDF Multi-Layer Extraction Pipeline[/bold cyan]")
+    console.print("=" * 80 + "\n")
     
     # Step 1: Read PDF with MinerU
-    if verbose:
-        console.print("[yellow]Step 1: Reading PDF with MinerU...[/yellow]")
+    console.print("[yellow]Step 1: Reading PDF with MinerU...[/yellow]")
     
     reader = MinerUReader(backend="pipeline")
     doc = reader.read(str(pdf_path))
-    t4_original = doc.content
+    lod_full = doc.content
     
     extractor = CompressionExtractor(llm_uri)
-    original_tokens = extractor.count_tokens(t4_original)
+    original_tokens = extractor.count_tokens(lod_full)
     
-    if verbose:
-        console.print(f"[green]✓ PDF read successfully[/green]")
-        console.print(f"  Content: {len(t4_original):,} chars")
-        console.print(f"  Tokens: {original_tokens:,}")
-        console.print(f"  Pages: {len(doc.pages)}")
+    console.print(f"[green]✓ PDF read successfully[/green]")
+    console.print(f"  Content: {len(lod_full):,} chars")
+    console.print(f"  Tokens: {original_tokens:,}")
+    console.print(f"  Pages: {len(doc.pages)}")
     
-    # Step 2: Extract Quick-Check layer (t1)
-    if verbose:
-        console.print("\n[yellow]Step 2: Extracting Quick-Check layer (t1)...[/yellow]")
+    # Step 2: Extract Quick-Check layer (lod_low)
+    console.print("\n[yellow]Step 2: Extracting Quick-Check layer (lod_low)...[/yellow]")
     
-    t1_quick_check = extractor.compress(
-        text=t4_original,
+    lod_low = extractor.compress(
+        text=lod_full,
         prompt=QUICK_CHECK_PROMPT,
         target_tokens=quick_check_target,
         chunk_size=3000,
         max_depth=2
     )
-    t1_tokens = extractor.count_tokens(t1_quick_check)
+    lod_low_tokens = extractor.count_tokens(lod_low)
     
-    if verbose:
-        console.print(f"[green]✓ Quick-Check extracted[/green]")
-        console.print(f"  Tokens: {t1_tokens:,} ({t1_tokens/original_tokens:.1%})")
+    console.print(f"[green]✓ Quick-Check extracted[/green]")
+    console.print(f"  Tokens: {lod_low_tokens:,} ({lod_low_tokens/original_tokens:.1%})")
     
-    # Step 3: Extract Shortlist layer (t2)
-    if verbose:
-        console.print("\n[yellow]Step 3: Extracting Shortlist layer (t2)...[/yellow]")
+    # Step 3: Extract Shortlist layer (lod_medium)
+    console.print("\n[yellow]Step 3: Extracting Shortlist layer (lod_medium)...[/yellow]")
     
-    t2_shortlist = extractor.compress(
-        text=t4_original,
+    lod_medium = extractor.compress(
+        text=lod_full,
         prompt=SHORTLIST_PROMPT,
         target_tokens=shortlist_target,
         chunk_size=3000,
         max_depth=2
     )
-    t2_tokens = extractor.count_tokens(t2_shortlist)
+    lod_medium_tokens = extractor.count_tokens(lod_medium)
     
-    if verbose:
-        console.print(f"[green]✓ Shortlist extracted[/green]")
-        console.print(f"  Tokens: {t2_tokens:,} ({t2_tokens/original_tokens:.1%})")
+    console.print(f"[green]✓ Shortlist extracted[/green]")
+    console.print(f"  Tokens: {lod_medium_tokens:,} ({lod_medium_tokens/original_tokens:.1%})")
     
-    # Step 4: Generate DocTree from Markdown (t3)
-    if verbose:
-        console.print("\n[yellow]Step 4: Building DocTree structure (t3)...[/yellow]")
-    
-    # Save markdown to temporary file for MarkdownTreeReader
-    temp_md_path = Path(tempfile.gettempdir()) / f"zag_temp_{uuid.uuid4().hex[:8]}.md"
-    with temp_md_path.open("w", encoding="utf-8") as f:
-        f.write(t4_original)
+    # Step 4: Generate DocTree from Markdown (lod_high)
+    console.print("\n[yellow]Step 4: Building DocTree structure (lod_high)...[/yellow]")
     
     try:
         tree_reader = MarkdownTreeReader(llm_uri=llm_uri, api_key=api_key)
-        t3_tree = tree_reader.read(path=str(temp_md_path), generate_summaries=True)
+        lod_tree = tree_reader.read(content=lod_full, generate_summaries=True)
         
-        if verbose:
-            all_nodes = t3_tree.collect_all_nodes()
-            console.print(f"[green]✓ DocTree built successfully[/green]")
-            console.print(f"  Total nodes: {len(all_nodes)}")
-            console.print(f"  Root: {t3_tree.doc_name}")
-    finally:
-        # Clean up temporary markdown file
-        if temp_md_path.exists():
-            temp_md_path.unlink()
+        all_nodes = lod_tree.collect_all_nodes()
+        console.print(f"[green]✓ DocTree built successfully[/green]")
+        console.print(f"  Total nodes: {len(all_nodes)}")
+        console.print(f"  Root: {lod_tree.doc_name}")
+    except Exception as e:
+        console.print(f"[red]✗ DocTree building failed: {e}[/red]")
+        raise
     
     # Step 5: Save to temporary directory
     temp_dir = None
     if save_to_temp:
-        if verbose:
-            console.print("\n[yellow]Step 5: Saving outputs to temporary directory...[/yellow]")
+        console.print("\n[yellow]Step 5: Saving outputs to temporary directory...[/yellow]")
         
         temp_base = Path(tempfile.gettempdir())
         temp_dir = temp_base / f"zag_pdf_extraction_{uuid.uuid4().hex[:8]}"
@@ -274,41 +253,49 @@ def process_pdf_document(
         base_name = pdf_path.stem
         
         # Save all layers
-        (temp_dir / f"{base_name}_t1_quick_check.md").write_text(t1_quick_check, encoding="utf-8")
-        (temp_dir / f"{base_name}_t2_shortlist.md").write_text(t2_shortlist, encoding="utf-8")
-        (temp_dir / f"{base_name}_t4_original.md").write_text(t4_original, encoding="utf-8")
+        (temp_dir / f"{base_name}_lod_low.md").write_text(lod_low, encoding="utf-8")
+        (temp_dir / f"{base_name}_lod_medium.md").write_text(lod_medium, encoding="utf-8")
+        (temp_dir / f"{base_name}_lod_full.md").write_text(lod_full, encoding="utf-8")
         
-        # Save t3_tree as JSON (can be loaded back with DocTree.from_json)
-        t3_tree.to_json(str(temp_dir / f"{base_name}_t3_tree.json"))
+        # Save lod_tree as JSON (can be loaded back with DocTree.from_json)
+        lod_tree.to_json(str(temp_dir / f"{base_name}_lod_tree.json"))
         
-        if verbose:
-            console.print(f"[green]✓ Files saved to:[/green]")
-            console.print(f"  {temp_dir}")
-            console.print(f"\n  Files:")
-            console.print(f"    • {base_name}_t1_quick_check.md")
-            console.print(f"    • {base_name}_t2_shortlist.md")
-            console.print(f"    • {base_name}_t3_tree.json")
-            console.print(f"    • {base_name}_t4_original.md")
+        console.print(f"[green]✓ Files saved to:[/green]")
+        console.print(f"  {temp_dir}")
+        console.print(f"\n  Files:")
+        console.print(f"    • {base_name}_lod_low.md")
+        console.print(f"    • {base_name}_lod_medium.md")
+        console.print(f"    • {base_name}_lod_tree.json")
+        console.print(f"    • {base_name}_lod_full.md")
+    
+    # Return BaseUnit with views
+    unit = BaseUnit(
+        unit_id=f"pdf_{uuid.uuid4().hex[:12]}",
+        content=lod_low,  # Primary content for retrieval
+        embedding_content=lod_low,  # Full content for embedding
+        views=[
+            ContentView(level=LODLevel.LOW, content=lod_low, token_count=lod_low_tokens),
+            ContentView(level=LODLevel.MEDIUM, content=lod_medium, token_count=lod_medium_tokens),
+            ContentView(level=LODLevel.HIGH, content=lod_tree.to_dict()),
+            ContentView(level=LODLevel.FULL, content=lod_full, token_count=original_tokens)
+        ]
+    )
     
     # Print summary
-    if verbose:
-        console.print("\n")
-        console.print(Panel.fit(
-            f"[bold green]Extraction Complete[/bold green]\n\n" +
-            f"t4 (Original): {original_tokens:,} tokens\n" +
-            f"t1 (Quick-Check): {t1_tokens:,} tokens ({t1_tokens/original_tokens:.1%})\n" +
-            f"t2 (Shortlist): {t2_tokens:,} tokens ({t2_tokens/original_tokens:.1%})\n" +
-            f"t3 (Tree): {len(t3_tree.collect_all_nodes())} nodes\n\n" +
-            (f"Output directory: {temp_dir}" if temp_dir else "No files saved"),
-            title="Summary",
-            border_style="green"
-        ))
+    console.print("\n")
+    console.print(Panel.fit(
+        f"[bold green]Extraction Complete[/bold green]\n\n" +
+        f"lod_full (Original): {original_tokens:,} tokens\n" +
+        f"lod_low (Quick-Check): {lod_low_tokens:,} tokens ({lod_low_tokens/original_tokens:.1%})\n" +
+        f"lod_medium (Shortlist): {lod_medium_tokens:,} tokens ({lod_medium_tokens/original_tokens:.1%})\n" +
+        f"lod_tree (Tree): {len(lod_tree.collect_all_nodes())} nodes\n\n" +
+        (f"Output directory: {temp_dir}" if temp_dir else "No files saved"),
+        title="Summary",
+        border_style="green"
+    ))
     
     return {
-        "t1_quick_check": t1_quick_check,
-        "t2_shortlist": t2_shortlist,
-        "t3_tree": t3_tree,
-        "t4_original": t4_original,
+        "unit": unit,
         "temp_dir": temp_dir
     }
 
@@ -365,12 +352,22 @@ def main() -> None:
     try:
         result = process_pdf_document(
             pdf_path=str(pdf_path),
-            save_to_temp=True,
-            verbose=True
+            save_to_temp=True
         )
-        
-        console.print("\n[bold green]Processing complete! Results ready for embedding and Qdrant storage.[/bold green]")
-        
+                
+        unit = result["unit"]
+        console.print("\n[bold green]Processing complete![/bold green]")
+        console.print(f"\nCreated Unit with {len(unit.views)} views:")
+        for view in unit.get_all_views():
+            console.print(f"  - {view.level.value}: {view.token_count or 'N/A'} tokens")
+                
+        # Example usage
+        console.print("\nExample usage:")
+        console.print(f"  quick_check = unit.get_view(LODLevel.LOW)")
+        console.print(f"  shortlist = unit.get_view(LODLevel.MEDIUM)")
+        console.print(f"  tree_dict = unit.get_view(LODLevel.HIGH)")
+        console.print(f"  original = unit.get_view(LODLevel.FULL)")
+    
     except Exception as e:
         console.print(f"\n[bold red]Error during processing:[/bold red] {e}")
         import traceback

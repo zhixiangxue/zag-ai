@@ -503,6 +503,11 @@ class MilvusVectorStore(BaseVectorStore):
                     'unit_type': unit.unit_type.value,
                     **self._extract_metadata(unit)
                 }
+                
+                # Store views
+                if unit.views:
+                    record["views"] = [view.model_dump() for view in unit.views]
+                
                 records.append(record)
         
         # Process image units
@@ -523,6 +528,11 @@ class MilvusVectorStore(BaseVectorStore):
                     'unit_type': unit.unit_type.value,
                     **self._extract_metadata(unit)
                 }
+                
+                # Store views
+                if unit.views:
+                    record["views"] = [view.model_dump() for view in unit.views]
+                
                 records.append(record)
         
         # Insert records
@@ -689,6 +699,15 @@ class MilvusVectorStore(BaseVectorStore):
                         metadata=metadata
                     )
                     
+                    # Restore views
+                    if 'views' in entity and entity['views']:
+                        from ...schemas import ContentView
+                        try:
+                            unit.views = [ContentView(**view_data) for view_data in entity['views']]
+                        except Exception:
+                            # If restoration fails, views remain None
+                            pass
+                    
                     # Add score
                     unit.score = float(hit.get('distance', 0.0))
                     
@@ -786,6 +805,15 @@ class MilvusVectorStore(BaseVectorStore):
                     content=entity['content'],
                     metadata=metadata
                 )
+                
+                # Restore views
+                if 'views' in entity and entity['views']:
+                    from ...schemas import ContentView
+                    try:
+                        unit.views = [ContentView(**view_data) for view_data in entity['views']]
+                    except Exception:
+                        # If restoration fails, views remain None
+                        pass
                 
                 units.append(unit)
         

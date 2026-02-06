@@ -6,14 +6,48 @@ This module contains all unit-related classes including:
 - UnitRegistry: Global unit registry for ID-to-object resolution  
 - UnitCollection: Collection of units with chainable operations
 - TextUnit, TableUnit, ImageUnit: Concrete unit implementations
+- ContentView: Level-of-Detail view for multi-resolution content
+- LODLevel: Enum for LOD levels (LOW, MEDIUM, HIGH, FULL)
 """
 
-from typing import Any, Optional, Callable
+from typing import Any, Optional, Callable, List
 from uuid import uuid4
+from enum import Enum
 from pydantic import BaseModel, Field, model_validator, field_serializer
 
 from .types import UnitType, RelationType, RetrievalSource
 from .metadata import UnitMetadata
+
+
+class LODLevel(str, Enum):
+    """Level of Detail for content views"""
+    LOW = "low"        # Most compressed, for quick filtering
+    MEDIUM = "medium"  # Balanced compression
+    HIGH = "high"      # Detailed structure (e.g., tree)
+    FULL = "full"      # Complete original content
+
+
+class ContentView(BaseModel):
+    """
+    Level-of-Detail view for document content
+    
+    Represents the same content at different detail levels,
+    following LOD (Level of Detail) paradigm from graphics/mapping.
+    
+    Attributes:
+        level: LOD level (LOW, MEDIUM, HIGH, FULL)
+        content: View content (str, dict, bytes, etc.)
+        token_count: Optional token count for this view
+        byte_size: Optional byte size for this view
+        compression_ratio: Optional compression ratio vs original
+    """
+    level: LODLevel
+    content: Any
+    
+    # Optional metadata
+    token_count: Optional[int] = None
+    byte_size: Optional[int] = None
+    compression_ratio: Optional[float] = None
 
 
 class UnitRegistry:
@@ -70,6 +104,12 @@ class BaseUnit(BaseModel):
     # Semantic relationships (stored as ID lists)
     relations: dict[str, list[str]] = Field(default_factory=dict)
     
+    # Multi-resolution views (Level-of-Detail)
+    views: Optional[List[ContentView]] = Field(
+        None,
+        description="Multi-resolution content views following LOD paradigm"
+    )
+    
     model_config = {
         "arbitrary_types_allowed": True,
         "validate_assignment": True,
@@ -80,6 +120,49 @@ class BaseUnit(BaseModel):
         """Auto-register to UnitRegistry after initialization"""
         UnitRegistry.register(self)
         return self
+    
+    # ============ View Access Methods ============
+    
+    def get_view(self, level: LODLevel) -> Optional[Any]:
+        """
+        Get content view by LOD level
+        
+        Args:
+            level: LOD level to retrieve
+            
+        Returns:
+            View content if exists, None otherwise
+            
+        Example:
+            >>> content = unit.get_view(LODLevel.LOW)
+            >>> tree = unit.get_view(LODLevel.HIGH)
+        """
+        if not self.views:
+            return None
+        
+        for view in self.views:
+            if view.level == level:
+                return view.content
+        return None
+    
+    def get_all_views(self) -> List[ContentView]:
+        """
+        Get all views sorted by detail level (LOW -> MEDIUM -> HIGH -> FULL)
+        
+        Returns:
+            List of ContentView objects sorted by LOD level
+        """
+        if not self.views:
+            return []
+        
+        # Sort by level order
+        level_order = {
+            LODLevel.LOW: 0,
+            LODLevel.MEDIUM: 1,
+            LODLevel.HIGH: 2,
+            LODLevel.FULL: 3
+        }
+        return sorted(self.views, key=lambda v: level_order.get(v.level, 999))
     
     # ============ Relationship Methods (Object-based) ============
     

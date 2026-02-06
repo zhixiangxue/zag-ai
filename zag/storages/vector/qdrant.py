@@ -464,6 +464,10 @@ class QdrantVectorStore(BaseVectorStore):
             if unit.metadata:
                 payload["metadata"] = unit.metadata.to_json_safe()
             
+            # Store views (serialize ContentView list)
+            if unit.views:
+                payload["views"] = [view.model_dump() for view in unit.views]
+            
             points.append(PointStruct(
                 id=self._unit_id_to_qdrant_id(unit.unit_id),
                 vector=embedding,
@@ -514,6 +518,10 @@ class QdrantVectorStore(BaseVectorStore):
             if unit.metadata:
                 payload["metadata"] = unit.metadata.to_json_safe()
             
+            # Store views
+            if unit.views:
+                payload["views"] = [view.model_dump() for view in unit.views]
+            
             points.append(PointStruct(
                 id=self._unit_id_to_qdrant_id(unit.unit_id),
                 vector=embedding,
@@ -553,6 +561,10 @@ class QdrantVectorStore(BaseVectorStore):
             
             if unit.metadata:
                 payload["metadata"] = unit.metadata.to_json_safe()
+            
+            # Store views
+            if unit.views:
+                payload["views"] = [view.model_dump() for view in unit.views]
             
             points.append(PointStruct(
                 id=self._unit_id_to_qdrant_id(unit.unit_id),
@@ -838,6 +850,12 @@ class QdrantVectorStore(BaseVectorStore):
         # Restore semantic relationships
         relations = payload.get("relations", {})
         
+        # Restore views
+        from ...schemas import ContentView, LODLevel
+        views = None
+        if "views" in payload and payload["views"]:
+            views = [ContentView(**view_data) for view_data in payload["views"]]
+        
         # Create unit based on type
         if unit_type == "text":
             unit = TextUnit(
@@ -888,5 +906,8 @@ class QdrantVectorStore(BaseVectorStore):
         unit.next_unit_id = next_unit_id
         unit.doc_id = doc_id
         unit.relations = relations
+        
+        # Restore views
+        unit.views = views
         
         return unit

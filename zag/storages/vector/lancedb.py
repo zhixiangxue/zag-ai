@@ -311,6 +311,11 @@ class LanceDBVectorStore(BaseVectorStore):
                     'unit_type': unit.unit_type.value,
                     **self._extract_metadata(unit)
                 }
+                
+                # Store views
+                if unit.views:
+                    record["views"] = [view.model_dump() for view in unit.views]
+                
                 records.append(record)
         
         # Process image units
@@ -327,6 +332,11 @@ class LanceDBVectorStore(BaseVectorStore):
                     'unit_type': unit.unit_type.value,
                     **self._extract_metadata(unit)
                 }
+                
+                # Store views
+                if unit.views:
+                    record["views"] = [view.model_dump() for view in unit.views]
+                
                 records.append(record)
         
         # Create table if it doesn't exist, otherwise add records
@@ -434,6 +444,15 @@ class LanceDBVectorStore(BaseVectorStore):
                     metadata=metadata
                 )
                 
+                # Restore views
+                if 'views' in row and row['views']:
+                    from ...schemas import ContentView
+                    try:
+                        unit.views = [ContentView(**view_data) for view_data in row['views']]
+                    except Exception:
+                        # If restoration fails, views remain None
+                        pass
+                
                 # Add score if available
                 if '_distance' in row:
                     unit.score = float(1.0 / (1.0 + row['_distance']))  # Convert distance to similarity
@@ -521,6 +540,16 @@ class LanceDBVectorStore(BaseVectorStore):
                     content=row['content'],
                     metadata=metadata
                 )
+                
+                # Restore views
+                if 'views' in row and row['views']:
+                    from ...schemas import ContentView
+                    try:
+                        unit.views = [ContentView(**view_data) for view_data in row['views']]
+                    except Exception:
+                        # If restoration fails, views remain None
+                        pass
+                
                 units.append(unit)
         
         return units

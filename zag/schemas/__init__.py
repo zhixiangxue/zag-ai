@@ -6,7 +6,7 @@ Schemas module - Core data structures
 from .types import UnitType, RelationType, RetrievalSource
 from .metadata import DocumentMetadata, UnitMetadata
 from .document import BaseDocument, Page, PageableDocument
-from .unit import BaseUnit, UnitRegistry, UnitCollection, TextUnit, TableUnit, ImageUnit
+from .unit import BaseUnit, UnitRegistry, UnitCollection, TextUnit, TableUnit, ImageUnit, LODLevel, ContentView
 from .tree import TreeNode, DocTree, TreeRetrievalResult
 
 __all__ = [
@@ -29,6 +29,9 @@ __all__ = [
     "TextUnit",
     "TableUnit",
     "ImageUnit",
+    # LOD and views
+    "LODLevel",
+    "ContentView",
     # Tree schemas
     "TreeNode",
     "DocTree",

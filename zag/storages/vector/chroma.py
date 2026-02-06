@@ -383,6 +383,8 @@ class ChromaVectorStore(BaseVectorStore):
         Returns:
             Dictionary of metadata (Chroma compatible)
         """
+        import json
+        
         metadata = {
             "unit_type": unit.unit_type.value,
             "doc_id": unit.doc_id or "",
@@ -403,6 +405,10 @@ class ChromaVectorStore(BaseVectorStore):
                 # Chroma metadata values must be str, int, float, or bool
                 if isinstance(value, (str, int, float, bool)):
                     metadata[key] = value
+        
+        # Store views as JSON string (Chroma doesn't support nested dicts)
+        if unit.views:
+            metadata["views_json"] = json.dumps([view.model_dump() for view in unit.views], ensure_ascii=False)
         
         return metadata
     
@@ -488,6 +494,17 @@ class ChromaVectorStore(BaseVectorStore):
                 
                 if 'doc_id' in metadata and metadata['doc_id']:
                     unit.doc_id = metadata['doc_id']
+                
+                # Restore views from JSON
+                if 'views_json' in metadata:
+                    import json
+                    from ...schemas import ContentView
+                    try:
+                        views_data = json.loads(metadata['views_json'])
+                        unit.views = [ContentView(**view_data) for view_data in views_data]
+                    except Exception:
+                        # If restoration fails, views remain None
+                        pass
                 
                 # Attach similarity score
                 # Chroma uses cosine distance by default (lower is more similar)
@@ -579,6 +596,17 @@ class ChromaVectorStore(BaseVectorStore):
                 
                 if 'doc_id' in metadata and metadata['doc_id']:
                     unit.doc_id = metadata['doc_id']
+                
+                # Restore views from JSON
+                if 'views_json' in metadata:
+                    import json
+                    from ...schemas import ContentView
+                    try:
+                        views_data = json.loads(metadata['views_json'])
+                        unit.views = [ContentView(**view_data) for view_data in views_data]
+                    except Exception:
+                        # If restoration fails, views remain None
+                        pass
                 
                 units.append(unit)
         
