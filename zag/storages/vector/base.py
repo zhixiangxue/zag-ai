@@ -3,7 +3,7 @@ Base vector store class
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Dict
 
 
 class BaseVectorStore(ABC):
@@ -269,6 +269,42 @@ class BaseVectorStore(ABC):
         """
         pass
     
+    def delete_by_filters(self, filters: Dict[str, Any]) -> None:
+        """
+        Delete units by metadata filters (same structure as query filters)
+        
+        This is used when re-processing a document to remove old data
+        before indexing the new version.
+        
+        Args:
+            filters: Filter conditions using dot notation, e.g.
+                    {"doc_id": "xxx"}
+                    {"doc_id": "xxx", "metadata.custom.mode": "lod"}
+                    {"metadata.custom.lender": "JMAC"}
+            
+        Raises:
+            NotImplementedError: If the vector store doesn't support filter-based deletion
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support delete_by_filters. "
+            f"This feature requires vector store to support filter-based deletion."
+        )
+    
+    async def adelete_by_filters(self, filters: Dict[str, Any]) -> None:
+        """
+        Async version of delete_by_filters
+        
+        Args:
+            filters: Filter conditions using dot notation
+            
+        Raises:
+            NotImplementedError: If the vector store doesn't support filter-based deletion
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support adelete_by_filters. "
+            f"This feature requires vector store to support filter-based deletion."
+        )
+    
     @abstractmethod
     def get(self, unit_ids: list[str]) -> list['BaseUnit']:
         """
@@ -340,6 +376,28 @@ class BaseVectorStore(ABC):
         Clear all vectors from store asynchronously.
         """
         pass
+    
+    def delete_collection(self) -> None:
+        """
+        Delete the entire collection
+        
+        Raises:
+            NotImplementedError: If the vector store doesn't support collection deletion
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support delete_collection."
+        )
+    
+    async def adelete_collection(self) -> None:
+        """
+        Async version of delete_collection
+        
+        Raises:
+            NotImplementedError: If the vector store doesn't support collection deletion
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support adelete_collection."
+        )
     
     @property
     @abstractmethod

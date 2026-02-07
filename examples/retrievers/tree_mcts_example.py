@@ -204,7 +204,7 @@ async def main():
         print("   (This may take a few seconds to tens of seconds, depending on preset)\n")
         
         try:
-            result = await retriever.retrieve(query, tree.nodes)
+            result = await retriever.search(query, tree)
             print_retrieval_results(result)
         except Exception as e:
             print(f"\n❌ Retrieval failed: {e}")

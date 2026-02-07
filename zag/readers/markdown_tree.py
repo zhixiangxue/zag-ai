@@ -219,7 +219,7 @@ class MarkdownTreeReader:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def read(
+    async def read(
         self,
         path: str = None,
         content: str = None,
@@ -260,11 +260,7 @@ class MarkdownTreeReader:
         # Step 4: Generate summaries (optional)
         if generate_summaries:
             all_nodes = self._collect_all_nodes(roots)
-
-            async def _run() -> None:
-                await self._generate_summaries_batch(all_nodes)
-
-            asyncio.run(_run())
+            await self._generate_summaries_batch(all_nodes)
 
         return DocTree(nodes=roots, doc_name=self.doc_name)
 

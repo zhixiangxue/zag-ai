@@ -3,7 +3,7 @@ Qdrant vector store implementation
 """
 
 import asyncio
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Dict
 
 from .base import BaseVectorStore
 from ...schemas import BaseUnit, UnitType
@@ -118,6 +118,15 @@ class QdrantVectorStore(BaseVectorStore):
                     distance=Distance.COSINE
                 )
             )
+    
+    def delete_collection(self) -> None:
+        """Delete the entire collection"""
+        self.client.delete_collection(collection_name=self.collection_name)
+    
+    async def adelete_collection(self) -> None:
+        """Async version of delete_collection"""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self.delete_collection)
     
     @classmethod
     def in_memory(
@@ -693,6 +702,43 @@ class QdrantVectorStore(BaseVectorStore):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.delete, unit_ids)
     
+    def delete_by_filters(self, filters: Dict[str, Any]) -> None:
+        """
+        Delete units by metadata filters (same structure as query filters)
+        
+        Args:
+            filters: Filter conditions using dot notation, e.g.
+                    {"doc_id": "xxx"}
+                    {"doc_id": "xxx", "metadata.custom.mode": "lod"}
+                    Complex filters: {"$and": [...], "$or": [...]}
+            
+        Raises:
+            ValueError: If filters is empty (safety check)
+        """
+        if not filters:
+            raise ValueError("filters cannot be empty")
+        
+        # Reuse QdrantFilterConverter (same as query)
+        from ...utils.filter_converter import QdrantFilterConverter
+        converter = QdrantFilterConverter()
+        qdrant_filter = converter.convert(filters)
+        
+        # Delete all points matching the filter
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector=qdrant_filter
+        )
+    
+    async def adelete_by_filters(self, filters: Dict[str, Any]) -> None:
+        """
+        Async version of delete_by_filters (uses executor wrapper)
+        
+        Args:
+            filters: Filter conditions using dot notation
+        """
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self.delete_by_filters, filters)
+    
     def get(self, unit_ids: list[str]) -> list[BaseUnit]:
         """
         Get units by IDs
@@ -786,7 +832,7 @@ class QdrantVectorStore(BaseVectorStore):
         Convert unit ID (string) to Qdrant point ID (integer)
         
         Qdrant requires either UUID or integer as point ID.
-        We use hash to convert string IDs to integers.
+        We use stable hash (hashlib.sha256) to convert string IDs to integers.
         
         Args:
             unit_id: String unit ID
@@ -794,9 +840,13 @@ class QdrantVectorStore(BaseVectorStore):
         Returns:
             Integer point ID for Qdrant
         """
-        # Use hash to convert string to integer
-        # Using abs() to ensure positive value
-        return abs(hash(unit_id)) % (2**63)  # Keep within 64-bit signed int range
+        # Use hashlib for stable hash across processes
+        import hashlib
+        hash_bytes = hashlib.sha256(unit_id.encode('utf-8')).digest()
+        # Take first 8 bytes and convert to int
+        hash_int = int.from_bytes(hash_bytes[:8], byteorder='big', signed=False)
+        # Keep within 63-bit range (signed int64)
+        return hash_int % (2**63)
     
     def _qdrant_id_to_unit_id(self, qdrant_id: int, stored_unit_id: str) -> str:
         """
