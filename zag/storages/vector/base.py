@@ -50,7 +50,7 @@ class BaseVectorStore(ABC):
         """
         Initialize vector store with embedder(s)
         
-        Two usage patterns:
+        Three usage patterns:
         
         Pattern 1 (Recommended): Single multimodal embedder
             Use when your embedder supports multiple content types (text, image, etc.)
@@ -59,6 +59,10 @@ class BaseVectorStore(ABC):
         Pattern 2: Separate embedders for different types
             Use when you want specialized embedders for each content type
             Example: Bailian for text + CLIP for images
+            
+        Pattern 3: Metadata-only operations (no embedder)
+            Use when only performing metadata operations (get/fetch/update/remove)
+            without vector search. This is useful for admin/management APIs.
         
         Args:
             embedder: Single embedder for all content types (multimodal)
@@ -71,6 +75,7 @@ class BaseVectorStore(ABC):
         
         Raises:
             ValueError: If neither 'embedder' nor 'text_embedder' is provided
+                       (only when attempting vector operations)
         
         Examples:
             # Pattern 1: Multimodal embedder (handles text and images)
@@ -90,6 +95,11 @@ class BaseVectorStore(ABC):
             >>> store = ChromaVectorStore(embedder=text_emb)
             >>> # or
             >>> store = ChromaVectorStore(text_embedder=text_emb)
+            
+            # Pattern 4: Metadata-only (no embedder needed)
+            >>> store = ChromaVectorStore.server(
+            ...     host="localhost", port=6333, collection_name="docs"
+            ... )
         """
         if embedder:
             # Pattern 1: Single multimodal embedder
@@ -98,17 +108,18 @@ class BaseVectorStore(ABC):
             self.text_embedder = embedder
             self.image_embedder = embedder
             self._is_multimodal = True
-        else:
+        elif text_embedder:
             # Pattern 2: Separate embedders
-            # Require at least text_embedder for text and table units
-            if not text_embedder:
-                raise ValueError(
-                    "Must provide either 'embedder' (for multimodal) "
-                    "or at least 'text_embedder' for text/table units"
-                )
             self.embedder = None
             self.text_embedder = text_embedder
             self.image_embedder = image_embedder
+            self._is_multimodal = False
+        else:
+            # Pattern 3: Metadata-only mode (no embedder)
+            # This allows get/fetch/update/remove without embedder
+            self.embedder = None
+            self.text_embedder = None
+            self.image_embedder = None
             self._is_multimodal = False
     
     def _get_embedder_for_unit(self, unit: 'BaseUnit') -> 'BaseEmbedder':
@@ -121,6 +132,7 @@ class BaseVectorStore(ABC):
             * TextUnit → text_embedder
             * TableUnit → text_embedder (tables are converted to text at unit level)
             * ImageUnit → image_embedder
+        - Metadata-only mode: Raises error (no embedder available)
         
         Args:
             unit: The unit to get embedder for
@@ -129,9 +141,16 @@ class BaseVectorStore(ABC):
             The appropriate embedder for this unit type
         
         Raises:
-            ValueError: If image_embedder is required but not provided
+            ValueError: If no embedder is configured or image_embedder is required but not provided
         """
         from ...schemas import UnitType
+        
+        # Check if in metadata-only mode (no embedder configured)
+        if not self.embedder and not self.text_embedder:
+            raise ValueError(
+                "No embedder configured. This vector store is in metadata-only mode. "
+                "Please provide an embedder for vector operations (add/search)."
+            )
         
         if self._is_multimodal:
             # Multimodal embedder handles all types
@@ -269,9 +288,9 @@ class BaseVectorStore(ABC):
         """
         pass
     
-    def delete_by_filters(self, filters: Dict[str, Any]) -> None:
+    def remove(self, filters: Dict[str, Any]) -> None:
         """
-        Delete units by metadata filters (same structure as query filters)
+        Remove units by metadata filters (same structure as query filters)
         
         This is used when re-processing a document to remove old data
         before indexing the new version.
@@ -283,26 +302,26 @@ class BaseVectorStore(ABC):
                     {"metadata.custom.lender": "JMAC"}
             
         Raises:
-            NotImplementedError: If the vector store doesn't support filter-based deletion
+            NotImplementedError: If the vector store doesn't support filter-based removal
         """
         raise NotImplementedError(
-            f"{self.__class__.__name__} does not support delete_by_filters. "
-            f"This feature requires vector store to support filter-based deletion."
+            f"{self.__class__.__name__} does not support remove. "
+            f"This feature requires vector store to support filter-based removal."
         )
-    
-    async def adelete_by_filters(self, filters: Dict[str, Any]) -> None:
+
+    async def aremove(self, filters: Dict[str, Any]) -> None:
         """
-        Async version of delete_by_filters
-        
+        Async version of remove
+
         Args:
             filters: Filter conditions using dot notation
-            
+
         Raises:
-            NotImplementedError: If the vector store doesn't support filter-based deletion
+            NotImplementedError: If the vector store doesn't support filter-based removal
         """
         raise NotImplementedError(
-            f"{self.__class__.__name__} does not support adelete_by_filters. "
-            f"This feature requires vector store to support filter-based deletion."
+            f"{self.__class__.__name__} does not support aremove. "
+            f"This feature requires vector store to support filter-based removal."
         )
     
     @abstractmethod
@@ -348,6 +367,45 @@ class BaseVectorStore(ABC):
             2. Update records in vector database
         """
         pass
+
+    def fetch(self, filters: Optional[Dict[str, Any]] = None) -> list['BaseUnit']:
+        """
+        Fetch all units matching the filters (no vector search)
+        
+        This method retrieves units purely by metadata filters without
+        performing any vector similarity search. Results are not ranked.
+        
+        Args:
+            filters: Optional metadata filters using dot notation, e.g.
+                    {"doc_id": "xxx"}
+                    {"doc_id": "xxx", "metadata.custom.mode": "lod"}
+                    If None, returns all units (use with caution on large collections)
+        
+        Returns:
+            List of matching units (unsorted)
+            
+        Raises:
+            NotImplementedError: If the vector store doesn't support filter-based fetch
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support fetch. "
+            f"This feature requires vector store to support filter-based retrieval."
+        )
+
+    async def afetch(self, filters: Optional[Dict[str, Any]] = None) -> list['BaseUnit']:
+        """
+        Async version of fetch
+        
+        Args:
+            filters: Optional metadata filters using dot notation
+            
+        Raises:
+            NotImplementedError: If the vector store doesn't support filter-based fetch
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support afetch. "
+            f"This feature requires vector store to support filter-based retrieval."
+        )
     
     @abstractmethod
     async def aupdate(self, units: Union['BaseUnit', list['BaseUnit']]) -> None:

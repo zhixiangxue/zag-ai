@@ -702,42 +702,42 @@ class QdrantVectorStore(BaseVectorStore):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.delete, unit_ids)
     
-    def delete_by_filters(self, filters: Dict[str, Any]) -> None:
+    def remove(self, filters: Dict[str, Any]) -> None:
         """
-        Delete units by metadata filters (same structure as query filters)
-        
+        Remove units by metadata filters (same structure as query filters)
+
         Args:
             filters: Filter conditions using dot notation, e.g.
                     {"doc_id": "xxx"}
                     {"doc_id": "xxx", "metadata.custom.mode": "lod"}
                     Complex filters: {"$and": [...], "$or": [...]}
-            
+
         Raises:
             ValueError: If filters is empty (safety check)
         """
         if not filters:
             raise ValueError("filters cannot be empty")
-        
+
         # Reuse QdrantFilterConverter (same as query)
         from ...utils.filter_converter import QdrantFilterConverter
         converter = QdrantFilterConverter()
         qdrant_filter = converter.convert(filters)
-        
+
         # Delete all points matching the filter
         self.client.delete(
             collection_name=self.collection_name,
             points_selector=qdrant_filter
         )
-    
-    async def adelete_by_filters(self, filters: Dict[str, Any]) -> None:
+
+    async def aremove(self, filters: Dict[str, Any]) -> None:
         """
-        Async version of delete_by_filters (uses executor wrapper)
-        
+        Async version of remove (uses executor wrapper)
+
         Args:
             filters: Filter conditions using dot notation
         """
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self.delete_by_filters, filters)
+        await loop.run_in_executor(None, self.remove, filters)
     
     def get(self, unit_ids: list[str]) -> list[BaseUnit]:
         """
@@ -816,6 +816,69 @@ class QdrantVectorStore(BaseVectorStore):
         """
         info = self.client.get_collection(collection_name=self.collection_name)
         return info.points_count
+
+    def fetch(self, filters: Optional[Dict[str, Any]] = None) -> list[BaseUnit]:
+        """
+        Fetch all units matching the filters (no vector search)
+        
+        Uses Qdrant scroll API to retrieve units purely by metadata filters
+        without performing any vector similarity search.
+        
+        Args:
+            filters: Optional metadata filters using dot notation, e.g.
+                    {"doc_id": "xxx"}
+                    {"doc_id": "xxx", "metadata.custom.mode": "lod"}
+                    If None, returns all units (use with caution on large collections)
+        
+        Returns:
+            List of matching units (unsorted)
+        """
+        # Convert filters to Qdrant format if provided
+        qdrant_filter = None
+        if filters:
+            from ...utils.filter_converter import QdrantFilterConverter
+            converter = QdrantFilterConverter()
+            qdrant_filter = converter.convert(filters)
+        
+        # Use scroll to fetch all matching points
+        all_units = []
+        offset = None
+        batch_size = 1000
+        
+        while True:
+            results, next_offset = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=qdrant_filter,
+                offset=offset,
+                limit=batch_size,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            # Convert points to units
+            for point in results:
+                unit = self._point_to_unit(point)
+                all_units.append(unit)
+            
+            # Check if there are more results
+            if not next_offset:
+                break
+            offset = next_offset
+        
+        return all_units
+
+    async def afetch(self, filters: Optional[Dict[str, Any]] = None) -> list[BaseUnit]:
+        """
+        Async version of fetch (uses executor wrapper)
+        
+        Args:
+            filters: Optional metadata filters using dot notation
+            
+        Returns:
+            List of matching units (unsorted)
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.fetch, filters)
     
     @property
     def dimension(self) -> int:
