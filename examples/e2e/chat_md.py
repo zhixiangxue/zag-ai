@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 
 from zag.readers import MarkdownTreeReader
 from zag.schemas import DocTree, TreeNode
-from zag.retrievers import SimpleRetriever, MCTSRetriever
+from zag.retrievers import SimpleRetriever, MCTSRetriever, SkeletonRetriever
 from zag.generators import GeneralAnswerGenerator
 
 # Load environment variables from .env file
@@ -62,7 +62,7 @@ def _compute_file_hash(file_path: str) -> str:
     return hasher.hexdigest()
 
 
-def get_or_build_tree(md_file: str) -> DocTree:
+async def get_or_build_tree(md_file: str) -> DocTree:
     """Get or build a DocTree representation for the given markdown file."""
 
     file_hash = _compute_file_hash(md_file)
@@ -74,7 +74,7 @@ def get_or_build_tree(md_file: str) -> DocTree:
 
     console.print("[yellow]Building tree (first run or file changed)...[/yellow]")
     reader = MarkdownTreeReader(llm_uri="openai/gpt-4o", api_key=OPENAI_API_KEY)
-    tree = reader.read(path=md_file, generate_summaries=True)
+    tree = await reader.read(path=md_file, generate_summaries=True)
 
     cache.set(file_hash, tree)
     console.print("[green]Tree cached for future runs.[/green]")
@@ -123,47 +123,62 @@ def _truncate_text(text: str, head_lines: int = 3, tail_lines: int = 3, max_line
     return result
 
 
-def _choose_retriever() -> object:
+def _choose_retriever():
     """Interactive retriever selection."""
 
     console.print("[bold yellow]Step 5:[/bold yellow] Choose retriever strategy")
     console.print("  [1] SimpleRetriever - fast, greedy layer-by-layer search")
-    console.print("  [2] MCTSRetriever (custom) - configurable MCTS search")
-    console.print("  [3] MCTSRetriever (preset: fast) - quick tests (~5s)")
-    console.print("  [4] MCTSRetriever (preset: balanced) - general use (~10s)")
-    console.print("  [5] MCTSRetriever (preset: accurate) - high precision (~20s)")
-    console.print("  [6] MCTSRetriever (preset: explore) - maximize recall")
+    console.print("  [2] SkeletonRetriever (summary mode, default) - fast, lossy")
+    console.print("  [3] SkeletonRetriever (full text mode) - lossless but slower")
+    console.print("  [4] MCTSRetriever (custom) - configurable MCTS search")
+    console.print("  [5] MCTSRetriever (preset: fast) - quick tests (~5s)")
+    console.print("  [6] MCTSRetriever (preset: balanced) - general use (~10s)")
+    console.print("  [7] MCTSRetriever (preset: accurate) - high precision (~20s)")
+    console.print("  [8] MCTSRetriever (preset: explore) - maximize recall")
 
-    choice = console.input("\n[cyan]Select retriever (1-6, default=1): [/cyan]").strip()
+    choice = console.input("\n[cyan]Select retriever (1-8, default=2): [/cyan]").strip()
 
-    if choice == "2":
+    use_full_text = False
+    
+    if choice == "1":
+        console.print("[green]Using SimpleRetriever.[/green]")
+        retriever = SimpleRetriever(llm_uri="openai/gpt-4o", api_key=OPENAI_API_KEY)
+    
+    elif choice == "3":
+        console.print("[green]Using SkeletonRetriever (full text mode - lossless).[/green]")
+        retriever = SkeletonRetriever(llm_uri="openai/gpt-4o", api_key=OPENAI_API_KEY, verbose=True)
+        use_full_text = True
+    
+    elif choice == "4":
         console.print("[green]Using MCTSRetriever (custom).[/green]")
         retriever = MCTSRetriever(llm_uri="openai/gpt-4o", api_key=OPENAI_API_KEY, iterations=50, exploration_c=1.4, top_k=5, verbose=True)
         retriever.print_config()
-        return retriever
-    if choice == "3":
+    
+    elif choice == "5":
         console.print("[green]Using MCTSRetriever (preset: fast).[/green]")
         retriever = MCTSRetriever.from_preset("fast", api_key=OPENAI_API_KEY, verbose=True)
         retriever.print_config()
-        return retriever
-    if choice == "4":
+    
+    elif choice == "6":
         console.print("[green]Using MCTSRetriever (preset: balanced).[/green]")
         retriever = MCTSRetriever.from_preset("balanced", api_key=OPENAI_API_KEY, verbose=True)
         retriever.print_config()
-        return retriever
-    if choice == "5":
+    
+    elif choice == "7":
         console.print("[green]Using MCTSRetriever (preset: accurate).[/green]")
         retriever = MCTSRetriever.from_preset("accurate", api_key=OPENAI_API_KEY, verbose=True)
         retriever.print_config()
-        return retriever
-    if choice == "6":
+    
+    elif choice == "8":
         console.print("[green]Using MCTSRetriever (preset: explore).[/green]")
         retriever = MCTSRetriever.from_preset("explore", api_key=OPENAI_API_KEY, verbose=True)
         retriever.print_config()
-        return retriever
 
-    console.print("[green]Using SimpleRetriever.[/green]")
-    return SimpleRetriever(llm_uri="openai/gpt-4o", api_key=OPENAI_API_KEY)
+    else:
+        console.print("[green]Using SkeletonRetriever (default - summary mode).[/green]")
+        retriever = SkeletonRetriever(llm_uri="openai/gpt-4o", api_key=OPENAI_API_KEY, verbose=True)
+    
+    return retriever, use_full_text
 
 
 def _show_retrieved_nodes(nodes: list[TreeNode]) -> None:
@@ -212,8 +227,24 @@ def main() -> None:
         console.print(f"[bold red]Not a markdown file:[/bold red] {md_file}")
         return
 
+    # Run the async main logic
+    asyncio.run(_async_main(md_file))
+
+    console.print("\n[bold green]DocTree QA test complete.[/bold green]")
+
+
+async def _async_main(md_file: str) -> None:
+    """Async main logic."""
     console.print("\n[bold yellow]Step 2:[/bold yellow] Build or load tree")
-    tree = get_or_build_tree(md_file)
+    tree = await get_or_build_tree(md_file)
+    
+    # Debug: Save tree to JSON
+    import json
+    from pathlib import Path
+    debug_json = Path("tmp") / f"{Path(md_file).stem}_tree_debug.json"
+    with open(debug_json, 'w', encoding='utf-8') as f:
+        json.dump(tree.to_dict(), f, ensure_ascii=False, indent=2)
+    console.print(f"[dim]Debug: Tree saved to {debug_json}[/dim]")
 
     console.print("\n[bold yellow]Step 3:[/bold yellow] Load DocTree")
     all_nodes = tree.collect_all_nodes()
@@ -221,7 +252,7 @@ def main() -> None:
     console.print(f"[green]Total nodes:[/green] {len(all_nodes)}")
 
     console.print("\n[bold yellow]Step 4:[/bold yellow] Choose retriever and answer generator")
-    retriever = _choose_retriever()
+    retriever, use_full_text = _choose_retriever()
 
     # AnswerGenerator uses API key from environment
     answer_generator = GeneralAnswerGenerator(llm_uri="openai/gpt-4o", api_key=OPENAI_API_KEY)
@@ -230,13 +261,16 @@ def main() -> None:
     console.print("[bold cyan]  Interactive retrieval and answer generation[/bold cyan]")
     console.print("[bold cyan]==============================================[/bold cyan]\n")
 
-    # Run the async interactive loop
-    asyncio.run(_interactive_qa(tree, retriever, answer_generator))
-
-    console.print("\n[bold green]DocTree QA test complete.[/bold green]")
+    # Run the interactive loop
+    await _interactive_qa(tree, retriever, answer_generator, use_full_text)
 
 
-async def _interactive_qa(tree: DocTree, retriever, answer_generator: GeneralAnswerGenerator) -> None:
+async def _interactive_qa(
+    tree: DocTree, 
+    retriever, 
+    answer_generator: GeneralAnswerGenerator, 
+    use_full_text: bool
+) -> None:
     """Async interactive QA loop."""
     while True:
         query = console.input("\n[bold cyan]Enter your question (or 'quit' to exit): [/bold cyan]").strip()
@@ -248,8 +282,14 @@ async def _interactive_qa(tree: DocTree, retriever, answer_generator: GeneralAns
         console.print("\n[yellow]Step 1: Retrieving relevant nodes...[/yellow]")
         t0 = time.time()
 
-        # Both SimpleRetriever and MCTSRetriever have async retrieve
-        result = await retriever.retrieve(query, tree.nodes)
+        try:
+            if use_full_text and hasattr(retriever, 'search_full'):
+                result = await retriever.search_full(query, tree)
+            else:
+                result = await retriever.search(query, tree)
+        except Exception as e:
+            console.print(f"[bold red]Retrieval failed: {e}[/bold red]")
+            continue
 
         retrieve_time = time.time() - t0
         console.print(
@@ -276,7 +316,12 @@ async def _interactive_qa(tree: DocTree, retriever, answer_generator: GeneralAns
             "Answer in Chinese:"
         )
         
-        answer = await answer_generator.generate(query, result.nodes, prompt_template=chinese_prompt)
+        try:
+            answer = await answer_generator.generate(query, result.nodes, prompt_template=chinese_prompt)
+        except Exception as e:
+            console.print(f"[bold red]Answer generation failed: {e}[/bold red]")
+            continue
+
         gen_time = time.time() - t1
 
         console.print(f"[green]Answer generated[/green] [dim]({gen_time:.2f}s)[/dim]")

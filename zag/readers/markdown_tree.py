@@ -159,7 +159,7 @@ class MarkdownTreeReader:
         return len(self._tokenizer.encode(text))
 
     async def _generate_summary(self, text: str) -> str:
-        """Generate a concise summary for the given text using the LLM."""
+        """Generate a retrieval-optimized summary that maximizes signal retention."""
 
         if not self.llm_uri:
             # Fallback: truncate long text when LLM is not configured
@@ -169,37 +169,95 @@ class MarkdownTreeReader:
         conv = chak.Conversation(self.llm_uri, api_key=self.api_key)
 
         prompt = (
-            "Please provide a concise summary of the following text in 2-3 sentences:\n\n"
-            f"{text}\n\nSummary:"
+            "Summarize the following text for search/retrieval purposes. "
+            "The summary will be used to find relevant information later, "
+            "so it's critical to preserve ALL specific signals.\n\n"
+            "**IMPORTANT INSTRUCTIONS:**\n"
+            "- DO NOT generalize or abstract lists. Keep all enumerated items.\n"
+            "- DO NOT replace specific terms with vague categories "
+            '(e.g., don\'t change "race, color, religion" to "various characteristics").\n'
+            "- PRESERVE all: regulation codes, proper nouns, numeric values, dates, "
+            "enumerated items, technical terms.\n"
+            "- Keep the summary in the SAME LANGUAGE as the source text.\n\n"
+            "**Required Format:**\n"
+            "[OVERVIEW] One sentence describing what this section covers.\n"
+            "[KEY_SIGNALS] List ALL specific terms, entities, codes, numbers, "
+            "and enumerated items mentioned. Separate with commas.\n\n"
+            "**Examples of what to AVOID:**\n"
+            'Bad: "prohibits discrimination based on various characteristics"\n'
+            'Bad: "lists several requirements"\n'
+            'Bad: "references multiple regulations"\n\n'
+            "**Examples of what to PRODUCE:**\n"
+            'Good: "prohibits discrimination based on race, color, national origin, '
+            'sex, religion, marital status, familial status, age, disability"\n'
+            'Good: "requires compliance with Fair Housing Act, Equal Credit Opportunity Act, '
+            'and 15 U.S.C. 1601"\n\n'
+            f"**Text to summarize:**\n{text}\n\n"
+            "**Your summary:**"
         )
         response = await conv.asend(prompt)
         return response.content.strip()
 
-    async def _process_node_summary(self, node: TreeNode) -> None:
-        """Generate or assign summary for a single node based on token count."""
-
-        token_count = self._count_tokens(node.text)
-        if token_count < self.summary_threshold:
-            node.summary = node.text
-        else:
-            node.summary = await self._generate_summary(node.text)
+    async def _aggregate_summary_bottom_up(
+        self, 
+        node: TreeNode,
+        semaphore: asyncio.Semaphore,
+        delay: float = 0.5
+    ) -> None:
+        """Generate summary for node using bottom-up aggregation.
+        
+        Process children first, then aggregate their summaries into parent's summary.
+        This ensures parent nodes contain semantic information from child nodes.
+        """
+        # Step 1: Process all children first (recursive)
+        if node.children:
+            tasks = [
+                self._aggregate_summary_bottom_up(child, semaphore, delay) 
+                for child in node.children
+            ]
+            await asyncio.gather(*tasks)
+        
+        # Step 2: Aggregate current node with children summaries
+        async with semaphore:
+            children_summaries = [c.summary for c in node.children if c.summary]
+            
+            if children_summaries:
+                # Combine own text + children summaries
+                combined = node.text + "\n\nChild sections:\n" + "\n".join(
+                    f"- {c.title}: {c.summary[:200]}" for c in node.children if c.summary
+                )
+                
+                # If combined text is too long, generate new summary; otherwise use as-is
+                token_count = self._count_tokens(combined)
+                if token_count > 500:
+                    node.summary = await self._generate_summary(combined)
+                else:
+                    node.summary = combined
+            else:
+                # Leaf node: use original logic
+                token_count = self._count_tokens(node.text)
+                if token_count < self.summary_threshold:
+                    node.summary = node.text
+                else:
+                    node.summary = await self._generate_summary(node.text)
+            
+            await asyncio.sleep(delay)
 
     async def _generate_summaries_batch(
         self,
-        nodes: List[TreeNode],
+        roots: List[TreeNode],
         max_concurrent: int = 5,
         delay: float = 0.5,
     ) -> None:
-        """Generate summaries for all nodes with concurrency control."""
+        """Generate summaries using bottom-up aggregation with concurrency control."""
 
         semaphore = asyncio.Semaphore(max_concurrent)
-
-        async def _throttled(node: TreeNode) -> None:
-            async with semaphore:
-                await self._process_node_summary(node)
-                await asyncio.sleep(delay)
-
-        tasks = [_throttled(node) for node in nodes]
+        
+        # Process each root tree independently
+        tasks = [
+            self._aggregate_summary_bottom_up(root, semaphore, delay) 
+            for root in roots
+        ]
         await asyncio.gather(*tasks)
 
     def _collect_all_nodes(self, tree: List[TreeNode]) -> List[TreeNode]:
@@ -259,8 +317,7 @@ class MarkdownTreeReader:
 
         # Step 4: Generate summaries (optional)
         if generate_summaries:
-            all_nodes = self._collect_all_nodes(roots)
-            await self._generate_summaries_batch(all_nodes)
+            await self._generate_summaries_batch(roots)
 
         return DocTree(nodes=roots, doc_name=self.doc_name)
 
