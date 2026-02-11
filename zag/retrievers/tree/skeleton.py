@@ -84,6 +84,7 @@ class SkeletonRetriever:
         """
         return await self._do_search(query, tree, use_full_text=True, top_k=top_k)
 
+<<<<<<< HEAD
     async def retrieve(
         self,
         query: str,
@@ -93,37 +94,63 @@ class SkeletonRetriever:
     ) -> TreeRetrievalResult:
         """Retrieve from unit ID (primary API for production use).
 
+=======
+    async def retrieve(self, query: str, unit_id: str, top_k: int = 8) -> TreeRetrievalResult:
+        """Retrieve from unit ID (primary API for production use).
+        
+>>>>>>> 6d634d979548487037a8bb81d767f1f9f9a8f6eb
         This method:
         1. Gets Unit from vector store by ID
         2. Extracts HIGH view (tree structure)
         3. Parses DocTree from view content
+<<<<<<< HEAD
         4. Delegates to search() or search_full() for actual retrieval
 
+=======
+        4. Delegates to search() for actual retrieval
+        
+>>>>>>> 6d634d979548487037a8bb81d767f1f9f9a8f6eb
         Args:
             query: Query text
             unit_id: Unit ID containing tree structure in HIGH view
             top_k: Maximum number of nodes to return
+<<<<<<< HEAD
             use_full_text: If True, use full node text; if False, use summary
 
         Returns:
             Tree retrieval result with relevant nodes and path
 
+=======
+            
+        Returns:
+            Tree retrieval result with relevant nodes and path
+            
+>>>>>>> 6d634d979548487037a8bb81d767f1f9f9a8f6eb
         Raises:
             ValueError: If vector_store is not provided or unit has no HIGH view
         """
         if not self.vector_store:
             raise ValueError("vector_store is required for retrieve() method")
+<<<<<<< HEAD
 
+=======
+        
+>>>>>>> 6d634d979548487037a8bb81d767f1f9f9a8f6eb
         # Get unit from vector store
         units = self.vector_store.get([unit_id])
         if not units:
             raise ValueError(f"Unit not found: {unit_id}")
         unit = units[0]
+<<<<<<< HEAD
 
+=======
+        
+>>>>>>> 6d634d979548487037a8bb81d767f1f9f9a8f6eb
         # Extract HIGH view
         high_view = unit.get_view(LODLevel.HIGH)
         if not high_view:
             raise ValueError(f"Unit {unit_id} has no HIGH view (tree structure)")
+<<<<<<< HEAD
 
         # Parse DocTree from view content
         tree = DocTree.from_dict(high_view)
@@ -131,6 +158,13 @@ class SkeletonRetriever:
         # Delegate to search or search_full based on use_full_text
         if use_full_text:
             return await self.search_full(query, tree, top_k=top_k)
+=======
+        
+        # Parse DocTree from view content
+        tree = DocTree.from_dict(high_view)
+        
+        # Delegate to search (default: summary mode)
+>>>>>>> 6d634d979548487037a8bb81d767f1f9f9a8f6eb
         return await self.search(query, tree, top_k=top_k)
 
     async def _do_search(
