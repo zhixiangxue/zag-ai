@@ -20,7 +20,6 @@ import os
 import time
 from pathlib import Path
 
-import xxhash
 from diskcache import Cache
 from dotenv import load_dotenv
 from rich.console import Console
@@ -32,6 +31,7 @@ from zag.readers import MarkdownTreeReader
 from zag.retrievers.tree import SkeletonRetriever
 from zag.schemas import DocTree, TreeNode
 from zag.generators import GeneralAnswerGenerator
+from zag.utils import calculate_file_hash
 
 console = Console()
 
@@ -113,13 +113,7 @@ def _show_retrieved_nodes(nodes: list[TreeNode]) -> None:
         console.print(panel)
 
 
-def _compute_file_hash(file_path: str) -> str:
-    """Compute xxhash64 for a file."""
-    hasher = xxhash.xxh64()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+
 
 
 def _list_cached_files():
@@ -245,7 +239,7 @@ async def main():
         print(f"\n✓ File found: {md_path}")
         
         # Check if already cached
-        file_hash = _compute_file_hash(md_path)
+        file_hash = calculate_file_hash(md_path)
         cached_tree = cache.get(file_hash)
         
         if cached_tree is not None:

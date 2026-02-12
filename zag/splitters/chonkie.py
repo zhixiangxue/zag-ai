@@ -194,26 +194,9 @@ class ChunkSplitter(BaseSplitter):
         if parent_unit and parent_unit.metadata:
             # Copy parent metadata
             metadata = parent_unit.metadata.model_copy()
-            
-            # Add chunk info to custom metadata
-            if not metadata.custom:
-                metadata.custom = {}
-            metadata.custom['chunk_index'] = chunk_index
-            metadata.custom['chunk_method'] = 'token_based'
-            metadata.custom['chunk_size'] = self.chunk_size
-            metadata.custom['chunk_overlap'] = self.chunk_overlap
-            metadata.custom['actual_tokens'] = token_count
         else:
-            # Create new metadata with chunk info
-            metadata = UnitMetadata(
-                custom={
-                    'chunk_index': chunk_index,
-                    'chunk_method': 'token_based',
-                    'chunk_size': self.chunk_size,
-                    'chunk_overlap': self.chunk_overlap,
-                    'actual_tokens': token_count
-                }
-            )
+            # Create new metadata
+            metadata = UnitMetadata()
         
         # Create TextUnit
         unit = TextUnit(

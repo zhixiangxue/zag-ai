@@ -156,6 +156,12 @@ class TableEnricher(BaseExtractor):
         if units_to_enrich:
             await self._batch_enrich(units_to_enrich, max_concurrent)
         
+        # 4. Clean up internal metadata from custom before returning
+        for unit in units:
+            if isinstance(unit, TableUnit) and unit.metadata.custom:
+                if "table" in unit.metadata.custom:
+                    del unit.metadata.custom["table"]
+        
         return units
     
     async def _batch_judge_critical(self, units: list, max_concurrent: int):

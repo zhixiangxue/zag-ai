@@ -8,7 +8,7 @@ This script demonstrates a complete pipeline that:
     4. Uses an LLM answer generator to produce answers with citations.
 
 Dependencies (install as needed):
-    pip install rich diskcache xxhash chakpy tiktoken python-dotenv
+    pip install rich diskcache chakpy tiktoken python-dotenv
 
 Run:
     python examples/e2e/chat_md.py
@@ -18,7 +18,6 @@ import asyncio
 import os
 import time
 
-import xxhash
 from diskcache import Cache
 from rich.console import Console
 from rich.markdown import Markdown
@@ -30,6 +29,7 @@ from zag.readers import MarkdownTreeReader
 from zag.schemas import DocTree, TreeNode
 from zag.retrievers import SimpleRetriever, MCTSRetriever, SkeletonRetriever
 from zag.generators import GeneralAnswerGenerator
+from zag.utils import calculate_file_hash
 
 # Load environment variables from .env file
 load_dotenv()
@@ -51,20 +51,10 @@ if not OPENAI_API_KEY:
 # Cache helpers
 # ---------------------------------------------------------------------------
 
-def _compute_file_hash(file_path: str) -> str:
-    """Compute xxhash64 for a file path."""
-
-    hasher = xxhash.xxh64()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
 async def get_or_build_tree(md_file: str) -> DocTree:
     """Get or build a DocTree representation for the given markdown file."""
 
-    file_hash = _compute_file_hash(md_file)
+    file_hash = calculate_file_hash(md_file)
     cached_tree = cache.get(file_hash)
 
     if cached_tree is not None:
