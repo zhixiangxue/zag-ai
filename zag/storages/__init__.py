@@ -3,6 +3,10 @@ Storages module
 Vector, document, and metadata storage
 """
 
-# TODO: Implement storages
+from .graph import GraphStorage, FalkorDBGraphStorage, create_storage
 
-__all__ = []
+__all__ = [
+    "GraphStorage",
+    "FalkorDBGraphStorage",
+    "create_storage",
+]
