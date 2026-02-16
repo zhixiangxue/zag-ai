@@ -5,7 +5,7 @@ PDF document schema
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional, Dict
+from typing import Any, List, Optional, Dict, Union
 from pydantic import Field, ConfigDict
 
 from .document import PageableDocument, Page
