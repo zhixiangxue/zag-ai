@@ -3,7 +3,7 @@ Docling reader for advanced PDF understanding
 """
 
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional, Tuple, Union
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -163,18 +163,56 @@ class DoclingReader(BaseReader):
                 )
             }
     
-    def read(self, source: Union[str, Path]) -> BaseDocument:
+    @staticmethod
+    def _get_pdf_page_count(source: str) -> Optional[int]:
+        """
+        Get total page count of a PDF file
+        
+        Args:
+            source: Path to PDF file
+            
+        Returns:
+            Total page count, or None if cannot determine
+        """
+        try:
+            # Use pypdf for lightweight page count
+            from pypdf import PdfReader
+            reader = PdfReader(source)
+            return len(reader.pages)
+        except Exception:
+            # Fallback: try pypdfium2
+            try:
+                import pypdfium2
+                pdf = pypdfium2.PdfDocument(source)
+                count = len(pdf)
+                pdf.close()
+                return count
+            except Exception:
+                return None
+    
+    def read(self, source: Union[str, Path], page_range: Optional[Tuple[int, int]] = None) -> BaseDocument:
         """
         Read and convert a file to PDF document with structured data
         
         Args:
             source: File path (str or Path object, relative/absolute) or URL
+            page_range: Optional page range as (start_page, end_page).
+                       Page numbers are 1-based and inclusive.
+                       Example: (1, 100) means read pages 1 through 100.
+                       None means read all pages (default).
             
         Returns:
             PDF document with markdown content and structured pages
             
         Raises:
-            ValueError: If source is invalid or file format is not supported
+            ValueError: If source is invalid, file format is not supported,
+                       or page_range is invalid (negative, end < start)
+            
+        Note:
+            Page range validation:
+            - Negative values or end < start → ValueError (invalid input)
+            - Range exceeds actual pages → Auto-adjusted to actual range (no error)
+            - Example: PDF has 50 pages, request (1, 100) → reads pages 1-50
         """
         # Validate and get complete info
         info = SourceUtils.validate(source, check_accessibility=True, timeout=5)
@@ -190,8 +228,41 @@ class DoclingReader(BaseReader):
                 f"Supported: {', '.join(t.value for t in self._get_supported_types())}"
             )
         
+        # Build convert options
+        convert_kwargs = {}
+        if page_range is not None:
+            start_page, end_page = page_range
+            
+            # Validate: negative values
+            if start_page < 1 or end_page < 1:
+                raise ValueError(
+                    f"Invalid page_range: page numbers must be >= 1. "
+                    f"Got: start={start_page}, end={end_page}"
+                )
+            
+            # Validate: end < start
+            if end_page < start_page:
+                raise ValueError(
+                    f"Invalid page_range: end ({end_page}) must be >= start ({start_page})"
+                )
+            
+            # For PDF files, check and adjust to actual page count
+            if info.file_type == FileType.PDF:
+                actual_pages = self._get_pdf_page_count(info.source)
+                if actual_pages is not None:
+                    # Auto-adjust if exceeds actual pages
+                    if start_page > actual_pages:
+                        raise ValueError(
+                            f"Invalid page_range: start ({start_page}) exceeds "
+                            f"total pages ({actual_pages})"
+                        )
+                    if end_page > actual_pages:
+                        end_page = actual_pages
+            
+            convert_kwargs['page_range'] = (start_page, end_page)
+        
         # Convert file using Docling
-        result = self._converter.convert(source)
+        result = self._converter.convert(source, **convert_kwargs)
         docling_doc = result.document
         
         # Extract markdown content

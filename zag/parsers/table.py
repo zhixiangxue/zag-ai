@@ -72,7 +72,8 @@ class TableParser:
             doc_id: Optional document id to attach to each TableUnit
 
         Returns:
-            List of TableUnit instances extracted from the text
+            List of TableUnit instances extracted from the text, each with
+            metadata.span set to (start, end) position in source text
         """
 
         if not text:
@@ -80,9 +81,11 @@ class TableParser:
 
         table_units: list[TableUnit] = []
 
-        # 1. Markdown tables
-        md_matches = self.TABLE_PATTERN.findall(text)
-        for table_text in md_matches:
+        # 1. Markdown tables - use finditer to get positions
+        for match in self.TABLE_PATTERN.finditer(text):
+            table_text = match.group(1)
+            start_pos, end_pos = match.start(1), match.end(1)
+            
             df = self._parse_markdown_to_dataframe(table_text)
             if df is None or df.empty:
                 continue
@@ -94,6 +97,9 @@ class TableParser:
             table_meta["source_format"] = "markdown"
             table_meta["row_count"] = len(df)
             table_meta["column_count"] = len(df.columns)
+            
+            # Set span for accurate page inference
+            unit_metadata.span = (start_pos, end_pos)
 
             table_unit = TableUnit(
                 unit_id=str(uuid4()),
@@ -106,9 +112,9 @@ class TableParser:
 
             table_units.append(table_unit)
 
-        # 2. HTML tables (only if BeautifulSoup is available)
-        html_tables = self._extract_html_tables(text)
-        for table_html in html_tables:
+        # 2. HTML tables - use _extract_html_tables_with_pos for positions
+        html_tables_with_pos = self._extract_html_tables_with_pos(text)
+        for table_html, (start_pos, end_pos) in html_tables_with_pos:
             is_complex = self._detect_html_table_complexity(table_html)
             df = self._convert_html_to_dataframe(table_html)
             if df is None or df.empty:
@@ -122,6 +128,9 @@ class TableParser:
             table_meta["row_count"] = len(df)
             table_meta["column_count"] = len(df.columns)
             table_meta["is_complex"] = is_complex
+            
+            # Set span for accurate page inference
+            unit_metadata.span = (start_pos, end_pos)
 
             table_unit = TableUnit(
                 unit_id=str(uuid4()),
@@ -175,6 +184,36 @@ class TableParser:
 
         soup = BeautifulSoup(text, "html.parser")
         return [str(table) for table in soup.find_all("table")]
+    
+    def _extract_html_tables_with_pos(self, text: str) -> list[tuple[str, tuple[int, int]]]:
+        """Extract all <table>...</table> snippets with their positions.
+        
+        Returns:
+            List of (table_html, (start, end)) tuples
+            
+        Note:
+            Uses BeautifulSoup to find tables, then locates their positions
+            in the original text by searching for the serialized HTML.
+        """
+        
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:  # pragma: no cover - optional dependency
+            return []
+        
+        soup = BeautifulSoup(text, "html.parser")
+        results = []
+        
+        for table in soup.find_all("table"):
+            table_html = str(table)
+            # Find position in original text
+            # Use the table's opening tag as signature
+            start_pos = text.find(table_html)
+            if start_pos != -1:
+                end_pos = start_pos + len(table_html)
+                results.append((table_html, (start_pos, end_pos)))
+        
+        return results
 
     def _parse_markdown_to_dataframe(self, table_text: str) -> "Any | None":
         """Parse a Markdown table into a pandas DataFrame.

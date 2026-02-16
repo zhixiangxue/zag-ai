@@ -126,6 +126,24 @@ class UnitMetadata(BaseModel):
         - Check metadata.custom['page_match_confidence'] for match quality
     """
     
+    span: Optional[tuple[int, int]] = None
+    """
+    Character span (start, end) in source document content
+    
+    Represents the exact position range where this unit's content appears
+    in the source document's full content string.
+    
+    Examples:
+        - Unit at beginning: (0, 500)
+        - Unit in middle: (1234, 1890)
+        - Unknown position: None
+    
+    Note:
+        - Set by parsers that know exact positions (e.g., TableParser)
+        - Used by infer_page_numbers() for accurate page mapping
+        - None means position unknown (will use fuzzy matching)
+    """
+    
     document: Optional[dict[str, Any]] = None
     """
     Source document metadata (for filtering/tracking/auditing)

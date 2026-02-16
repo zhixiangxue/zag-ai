@@ -9,20 +9,20 @@ from pydantic import BaseModel, Field
 from .base import BaseExtractor
 
 
-DEFAULT_TEMPLATE = """从以下文本中提取 {num_keywords} 个最重要的关键词。
+DEFAULT_TEMPLATE = """Extract {num_keywords} most important keywords from the following text.
 
-文本：
+Text:
 {text}
 
-要求：
-1. 关键词应能唯一标识这段文本的核心主题
-2. 使用原文语言
+Requirements:
+1. Keywords should uniquely identify the core topic of this text
+2. Use the same language as the source text
 
-请提取关键词："""
+Please extract the keywords:"""
 
 
 class KeywordList(BaseModel):
-    """关键词列表结构"""
+    """Keyword list structure"""
     keywords: List[str] = Field(description="Extracted keywords from the text")
 
 

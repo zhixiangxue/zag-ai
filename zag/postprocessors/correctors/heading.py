@@ -175,8 +175,32 @@ class HeadingCorrector(BasePostprocessor):
                 # Create markdown heading
                 markdown_heading = '#' * h['level'] + ' ' + normalized_heading
                 
-                # Replace first occurrence (exact match, no word boundaries)
-                content = re.sub(heading_pattern, markdown_heading, content, count=1, flags=re.IGNORECASE)
+                # Pattern to match: optional existing markdown heading (#*) + heading text
+                # This handles cases where Docling already output markdown headings
+                # e.g., "## Assets and Reserves" should become "## Assets and Reserves" (corrected level)
+                # not "## ### Assets and Reserves" (duplicated)
+                pattern_with_prefix = r'^#{0,6}\s*' + heading_pattern
+                
+                # Try to replace with existing markdown prefix first (at line start)
+                new_content, count = re.subn(
+                    pattern_with_prefix, 
+                    markdown_heading, 
+                    content, 
+                    count=1, 
+                    flags=re.MULTILINE | re.IGNORECASE
+                )
+                
+                if count == 0:
+                    # No existing markdown prefix found, try plain text replacement
+                    content = re.sub(
+                        heading_pattern, 
+                        markdown_heading, 
+                        content, 
+                        count=1, 
+                        flags=re.IGNORECASE
+                    )
+                else:
+                    content = new_content
             
             page.content = content
         

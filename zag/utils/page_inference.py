@@ -2,205 +2,215 @@
 Page number inference utilities
 
 Infer which pages a unit appears on after splitting,
-using fuzzy position-based matching.
+using sequential ordering + signature matching.
 """
 
-import re
 from typing import Optional
 from difflib import SequenceMatcher
 
 from ..schemas import BaseUnit, Page
 
 
-def normalize_text(text: str) -> str:
-    """
-    Normalize text to reduce irrelevant differences
-    
-    Handles:
-    - Multiple spaces → single space
-    - Multiple newlines → single newline
-    - Strip leading/trailing whitespace
-    
-    Args:
-        text: Text to normalize
-        
-    Returns:
-        Normalized text
-    """
-    # Normalize whitespace
-    text = re.sub(r'[ \t]+', ' ', text)  # Multiple spaces → single space
-    text = re.sub(r'\n+', '\n', text)     # Multiple newlines → single newline
-    text = text.strip()
-    
-    return text
-
-
-def find_best_match(
-    needle: str,
+def fuzzy_find_start(
+    signature: str,
     haystack: str,
     start_from: int = 0,
-    threshold: float = 0.85
-) -> Optional[tuple[int, int, float]]:
+    threshold: float = 0.80
+) -> Optional[int]:
     """
-    Find the best matching position of needle in haystack using fuzzy matching
+    Find the start position of signature in haystack using fuzzy matching.
     
-    Strategy:
-    1. For short texts (< 50 chars), use exact matching
-    2. For longer texts, use signature-based fast matching
-    3. Return position and similarity score
+    Uses sliding window with similarity scoring.
+    For efficiency, only searches in a reasonable range.
     
     Args:
-        needle: Text to find (unit content)
-        haystack: Text to search in (full document)
-        start_from: Start search from this position (for sequential ordering)
-        threshold: Minimum similarity score (0.0-1.0)
+        signature: Text to find (e.g., unit.content[:300])
+        haystack: Text to search in (full document content)
+        start_from: Start search from this position (sequential ordering)
+        threshold: Minimum similarity ratio (0.0-1.0)
         
     Returns:
-        (match_start, match_end, similarity) or None if no match found
+        Best matching position, or None if not found
     """
-    needle_len = len(needle)
+    sig_len = len(signature)
+    haystack_len = len(haystack)
     
-    # Strategy 1: Short text - use exact matching
-    if needle_len < 50:
-        idx = haystack.find(needle, start_from)
-        if idx != -1:
-            return (idx, idx + needle_len, 1.0)
-        return None
+    # If signature is longer than remaining text, truncate
+    if start_from + sig_len > haystack_len:
+        available = haystack_len - start_from
+        if available < 50:
+            return None
+        signature = signature[:available]
+        sig_len = len(signature)
     
-    # Strategy 2: Extract signature (first 100 chars) for fast candidate location
-    signature_len = min(100, needle_len)
-    signature = needle[:signature_len]
-    
-    # Find all positions where signature might appear
-    candidates = []
-    pos = start_from
-    
-    while pos < len(haystack):
-        idx = haystack.find(signature[:50], pos)  # Use first 50 chars for quick find
-        if idx == -1:
-            break
-        candidates.append(idx)
-        pos = idx + 1
-        
-        # Limit candidates to avoid excessive computation
-        if len(candidates) >= 10:
-            break
-    
-    if not candidates:
-        return None
-    
-    # Strategy 3: For each candidate, compute similarity with window
-    best_match = None
-    best_similarity = 0.0
-    
-    window_size = int(needle_len * 1.2)  # Allow 20% length variation
-    
-    for candidate_pos in candidates:
-        # Extract window around candidate
-        window_start = max(0, candidate_pos - 50)
-        window_end = min(len(haystack), candidate_pos + window_size + 50)
-        window = haystack[window_start:window_end]
-        
-        # Compute similarity
-        similarity = SequenceMatcher(None, needle, window).ratio()
-        
-        if similarity > best_similarity:
-            best_similarity = similarity
-            # Use candidate position as match boundaries
-            match_end = min(window_end, candidate_pos + needle_len)
-            best_match = (candidate_pos, match_end, similarity)
-            
-            # Early exit if very high similarity
-            if similarity > 0.98:
+    # Step 1: Try exact match first (most efficient)
+    # Use first 30 chars for quick exact search
+    quick_sig = signature[:30] if len(signature) > 30 else signature
+    if len(quick_sig) >= 10:
+        pos = start_from
+        while pos < haystack_len:
+            idx = haystack.find(quick_sig, pos)
+            if idx == -1:
+                break
+            # Verify with longer signature
+            candidate = haystack[idx:idx + sig_len]
+            if len(candidate) == sig_len:
+                score = SequenceMatcher(None, signature, candidate).ratio()
+                if score >= threshold:
+                    return idx
+            pos = idx + 1
+            # Limit iterations
+            if pos > start_from + 50000:
                 break
     
-    # Check if similarity exceeds threshold
-    if best_similarity >= threshold:
-        return best_match
+    # Step 2: Sliding window with smaller step for better coverage
+    best_pos = None
+    best_score = threshold
     
-    return None
+    # Use smaller step for better coverage
+    step = max(1, min(50, sig_len // 20))
+    
+    search_end = min(haystack_len - sig_len + 1, start_from + 100000)
+    
+    for pos in range(start_from, search_end, step):
+        candidate = haystack[pos:pos + sig_len]
+        score = SequenceMatcher(None, signature, candidate).ratio()
+        
+        if score > best_score:
+            best_score = score
+            best_pos = pos
+            
+            if score > 0.95:
+                break
+    
+    return best_pos
 
 
 def infer_page_numbers(
     units: list[BaseUnit],
     pages: list[Page],
-    similarity_threshold: float = 0.85
+    full_content: str = None,
+    signature_len: int = 300,
+    similarity_threshold: float = 0.70
 ) -> None:
     """
-    Infer page numbers for units using fuzzy position-based matching
+    Infer page numbers for units using sequential ordering + signature matching.
     
-    This function modifies units in-place, setting metadata.page_numbers.
+    Core algorithm:
+    1. Build page offset index (page_number -> (start, end))
+    2. For each unit in order:
+       - Use unit.content[:signature_len] to find start position
+       - end = start + len(unit.content)
+       - Map (start, end) to page numbers
+       - Update last_end_pos for next unit (sequential constraint)
     
-    Algorithm:
-    1. Build page position index (character offsets in full document)
-    2. For each unit, find best matching position in full text
-    3. Determine which pages overlap with that position
-    4. Use sequential ordering constraint (next unit should be after previous)
+    This modifies units in-place, setting metadata.page_numbers.
     
     Args:
         units: List of units to enrich with page numbers
         pages: List of pages from the document
-        similarity_threshold: Minimum similarity score (default: 0.85)
+        full_content: Full document content (if None, will be built from pages)
+        signature_len: Length of signature for matching (default: 300)
+        similarity_threshold: Minimum similarity for fuzzy matching (default: 0.70)
     """
-    if not pages:
+    if not pages or not units:
         return
     
-    # Step 1: Build page position index
+    # Use provided full_content, or build from pages
+    if full_content is None:
+        full_content = "\n".join(p.content or "" for p in pages)
+    
+    # Step 1: Build page offset index
+    # Check if pages already have span info (from MinerUReader)
     page_positions = []
-    current_pos = 0
+    has_span_info = all(
+        p.metadata and hasattr(p.metadata, 'get') and p.metadata.get('span') 
+        for p in pages
+    )
     
-    for page in pages:
-        page_len = len(page.content)
-        page_positions.append((
-            current_pos,              # start
-            current_pos + page_len,   # end
-            page.page_number          # page number
-        ))
-        current_pos += page_len
+    if has_span_info:
+        # Use pre-computed span from Page.metadata
+        for page in pages:
+            span = page.metadata.get('span')
+            if span:
+                page_positions.append((span[0], span[1], page.page_number))
+    else:
+        # Fall back to searching for page content in full_content
+        current_pos = 0
+        
+        for page in pages:
+            page_content = page.content or ""
+            if not page_content.strip():
+                page_positions.append((current_pos, current_pos, page.page_number))
+                continue
+            
+            page_sig = page_content[:50] if len(page_content) > 50 else page_content
+            pos = full_content.find(page_sig, current_pos)
+            
+            if pos != -1:
+                page_positions.append((pos, pos + len(page_content), page.page_number))
+                current_pos = pos + 1
+            else:
+                page_positions.append((current_pos, current_pos + len(page_content), page.page_number))
+                current_pos += len(page_content) + 1
     
-    # Concatenate all pages into full text
-    full_text = ''.join(p.content for p in pages)
-    
-    # IMPORTANT: Normalize full_text to match normalized unit content
-    # This significantly improves matching after text processing by splitters
-    full_text_normalized = normalize_text(full_text)
-    
-    # Step 2-3: For each unit, find position and infer pages
-    last_found_pos = 0  # Sequential ordering constraint
+    # Step 2: Process units sequentially
+    last_end_pos = 0  # Sequential ordering constraint
     
     for unit in units:
-        # Normalize unit content
-        unit_text = normalize_text(unit.content)
-        
-        # Skip very short units (< 20 chars after normalization)
-        if len(unit_text) < 20:
+        if not unit.content:
             unit.metadata.page_numbers = None
             continue
+            
+        content_len = len(unit.content)
+            
+        # Check if unit has known position (e.g., from parser)
+        if unit.metadata.span:
+            start, end = unit.metadata.span
+        else:
+            # Fall back to fuzzy matching
+            # Use signature for matching
+            sig = unit.content[:signature_len] if content_len > signature_len else unit.content
+                
+            # Skip very short units (less than 10 chars)
+            if len(sig.strip()) < 10:
+                unit.metadata.page_numbers = None
+                continue
+                
+            # Try to find start position with multiple strategies
+            start = None
+                
+            # Strategy 1: With sequential constraint
+            start = fuzzy_find_start(sig, full_content, start_from=last_end_pos, threshold=similarity_threshold)
+                
+            # Strategy 2: Without sequential constraint (fallback)
+            if start is None:
+                start = fuzzy_find_start(sig, full_content, start_from=0, threshold=similarity_threshold)
+                
+            # Strategy 3: Try with smaller signature (more tolerant)
+            if start is None and len(sig) > 100:
+                smaller_sig = sig[:100]
+                start = fuzzy_find_start(smaller_sig, full_content, start_from=0, threshold=0.60)
+                
+            if start is None:
+                # Could not find
+                unit.metadata.page_numbers = None
+                continue
+                
+            # Calculate end position
+            end = start + content_len
+                
+            # Update sequential constraint for next unit
+            last_end_pos = max(last_end_pos, start + 1)
         
-        # Find best matching position
-        best_match = find_best_match(
-            unit_text,
-            full_text_normalized,  # Use normalized text for matching
-            start_from=last_found_pos,
-            threshold=similarity_threshold
-        )
-        
-        if best_match is None:
-            # No confident match found
-            unit.metadata.page_numbers = None
-            continue
-        
-        match_start, match_end, similarity = best_match
-        last_found_pos = match_start  # Update for next unit
-        
-        # Step 4: Find overlapping pages
+        # Step 3: Find overlapping pages
         overlapping_pages = []
         for page_start, page_end, page_num in page_positions:
-            # Check overlap: not (end <= start or start >= end)
-            if not (match_end <= page_start or match_start >= page_end):
+            # Check overlap: not (content ends before page OR content starts after page)
+            if not (end <= page_start or start >= page_end):
                 overlapping_pages.append(page_num)
         
-        unit.metadata.page_numbers = overlapping_pages if overlapping_pages else None
+        unit.metadata.page_numbers = sorted(overlapping_pages) if overlapping_pages else None
 
 
 def get_page_numbers_display(unit: BaseUnit) -> str:

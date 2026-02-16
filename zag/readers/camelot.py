@@ -12,16 +12,11 @@ except ImportError:
 
 from zag.schemas import BaseDocument, DocumentMetadata, Page
 from zag.schemas.pdf import PDF
-<<<<<<< HEAD
 from zag.schemas.unit import TableUnit
 from zag.schemas.metadata import UnitMetadata
 from .base import BaseReader
 from ..utils.hash import calculate_file_hash
 from uuid import uuid4
-=======
-from .base import BaseReader
-from ..utils.hash import calculate_file_hash
->>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
 
 
 class CamelotReader(BaseReader):
@@ -170,7 +165,6 @@ class CamelotReader(BaseReader):
             **self.kwargs
         )
         
-<<<<<<< HEAD
         # Build TableUnits from extracted tables
         table_units = self._build_table_units(tables, file_path)
         
@@ -182,48 +176,27 @@ class CamelotReader(BaseReader):
         
         # Create metadata
         metadata = self._extract_metadata(file_path, full_text, num_pages)
-=======
-        # Build pages with tables
-        pages = self._build_pages(tables, file_path)
-        
-        # Build full content
-        full_text = "\n\n".join(page.content for page in pages)
-        
-        # Create metadata
-        metadata = self._extract_metadata(file_path, full_text, len(pages))
->>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
         
         # Create PDF document with doc_id based on file hash
         pdf_doc = PDF(
             doc_id=metadata.md5,
             content=full_text,
             metadata=metadata,
-<<<<<<< HEAD
             pages=[],  # Camelot focuses on tables, not page structure
             units=table_units
-=======
-            pages=pages
->>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
         )
         
         return pdf_doc
     
-<<<<<<< HEAD
     def _get_page_count(self, tables, file_path: Path) -> int:
         """
         Get total page count from PDF.
-=======
-    def _build_pages(self, tables, file_path: Path) -> List[Page]:
-        """
-        Build pages from extracted tables.
->>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
         
         Args:
             tables: Camelot TableList object
             file_path: Path to PDF file
         
         Returns:
-<<<<<<< HEAD
             Number of pages in PDF
         """
         if tables:
@@ -232,9 +205,9 @@ class CamelotReader(BaseReader):
         
         # Try to get page count from PDF
         try:
-            import PyPDF2
+            import pypdf
             with open(file_path, 'rb') as f:
-                pdf_reader = PyPDF2.PdfReader(f)
+                pdf_reader = pypdf.PdfReader(f)
                 return len(pdf_reader.pages)
         except Exception:
             return 1
@@ -300,73 +273,6 @@ class CamelotReader(BaseReader):
             table_units.append(table_unit)
         
         return table_units
-=======
-            List of Page objects
-        """
-        if not tables:
-            # No tables found, return empty page structure
-            # Try to get page count from PDF
-            try:
-                import PyPDF2
-                with open(file_path, 'rb') as f:
-                    pdf_reader = PyPDF2.PdfReader(f)
-                    num_pages = len(pdf_reader.pages)
-            except Exception:
-                num_pages = 1
-            
-            return [
-                Page(
-                    page_number=i + 1,
-                    content="[No tables detected on this page]",
-                    units=[],
-                    metadata={}
-                )
-                for i in range(num_pages)
-            ]
-        
-        # Group tables by page
-        page_tables = {}
-        for table in tables:
-            page_num = table.page
-            if page_num not in page_tables:
-                page_tables[page_num] = []
-            page_tables[page_num].append(table)
-        
-        # Build pages
-        pages = []
-        for page_num in sorted(page_tables.keys()):
-            page_content = []
-            
-            for i, table in enumerate(page_tables[page_num], start=1):
-                # Get table metadata
-                accuracy = table.accuracy if hasattr(table, 'accuracy') else None
-                whitespace = table.whitespace if hasattr(table, 'whitespace') else None
-                
-                # Add table info
-                info_lines = [f"**Table {i}**"]
-                if accuracy is not None:
-                    info_lines.append(f"*Accuracy: {accuracy:.2f}%*")
-                if whitespace is not None:
-                    info_lines.append(f"*Whitespace: {whitespace:.2f}%*")
-                
-                page_content.append("\n".join(info_lines))
-                
-                # Convert table to markdown
-                md_table = self._table_to_markdown(table.df)
-                page_content.append(md_table)
-            
-            pages.append(Page(
-                page_number=page_num,
-                content="\n\n".join(page_content),
-                units=[],
-                metadata={
-                    "table_count": len(page_tables[page_num]),
-                    "extraction_flavor": self.flavor
-                }
-            ))
-        
-        return pages
->>>>>>> d5ed3a7e802a72b8e0df0a307d58b94559f38215
     
     def _table_to_markdown(self, df) -> str:
         """
@@ -426,11 +332,11 @@ class CamelotReader(BaseReader):
             "extraction_flavor": self.flavor,
         }
         
-        # Try to extract PDF metadata using PyPDF2
+        # Try to extract PDF metadata using pypdf
         try:
-            import PyPDF2
+            import pypdf
             with open(file_path, 'rb') as f:
-                pdf_reader = PyPDF2.PdfReader(f)
+                pdf_reader = pypdf.PdfReader(f)
                 info = pdf_reader.metadata or {}
                 
                 # Add title if available
@@ -441,7 +347,7 @@ class CamelotReader(BaseReader):
                 if info.get('/Author'):
                     custom["author"] = info.get('/Author')
         except Exception:
-            # If PyPDF2 fails, just skip metadata extraction
+            # If pypdf fails, just skip metadata extraction
             pass
         
         return DocumentMetadata(

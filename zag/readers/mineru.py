@@ -5,7 +5,7 @@ MinerU reader for high-accuracy PDF parsing
 import json
 import tempfile
 from pathlib import Path
-from typing import Any, Optional, Literal, Union
+from typing import Any, Optional, Literal, Union, Tuple
 
 from .base import BaseReader
 from ..schemas import BaseDocument, DocumentMetadata, Page
@@ -57,8 +57,8 @@ class MinerUReader(BaseReader):
         reader = MinerUReader(lang="ch")  # Chinese
         
         # Parse specific page range
-        reader = MinerUReader(start_page_id=0, end_page_id=10)
-        doc = reader.read("path/to/file.pdf")
+        doc = reader.read("path/to/file.pdf", page_range=(1, 100))
+        doc = reader.read("path/to/file.pdf", page_range=(101, 200))
         
         # Use remote VLM service
         reader = MinerUReader(
@@ -98,8 +98,6 @@ class MinerUReader(BaseReader):
         formula_enable: bool = True,
         table_enable: bool = True,
         server_url: Optional[str] = None,
-        start_page_id: int = 0,
-        end_page_id: Optional[int] = None,
     ):
         """
         Initialize MinerU reader
@@ -121,8 +119,6 @@ class MinerUReader(BaseReader):
             formula_enable: Enable formula recognition
             table_enable: Enable table recognition
             server_url: Server URL for http-client backends
-            start_page_id: Start page ID (0-based)
-            end_page_id: End page ID (None means parse until end)
         """
         self.backend = backend
         self.parse_method = parse_method
@@ -130,26 +126,39 @@ class MinerUReader(BaseReader):
         self.formula_enable = formula_enable
         self.table_enable = table_enable
         self.server_url = server_url
-        self.start_page_id = start_page_id
-        self.end_page_id = end_page_id
         
         # Validate http-client backend requires server_url
         if backend in ["hybrid-http-client", "vlm-http-client"] and not server_url:
             raise ValueError(f"Backend '{backend}' requires server_url parameter")
     
-    def read(self, source: Union[str, Path]) -> BaseDocument:
+    def read(self, source: Union[str, Path], page_range: Optional[Tuple[int, int]] = None) -> BaseDocument:
         """
         Read and parse a PDF file using MinerU
         
         Args:
             source: File path (str or Path object, relative/absolute) or URL
+            page_range: Optional page range as (start_page, end_page).
+                       Page numbers are 1-based and inclusive.
+                       Example: (1, 100) means read pages 1 through 100.
+                       None means read all pages (default).
             
         Returns:
             PDF document with markdown content and structured pages
             
         Raises:
-            ValueError: If source is invalid or file format is not supported
+            ValueError: If source is invalid, file format is not supported,
+                       or page_range is invalid (negative, end < start)
             ImportError: If mineru is not installed
+            
+        Note:
+            Page range validation:
+            - Negative values or end < start → ValueError (invalid input)
+            - Range exceeds actual pages → Auto-adjusted to actual range (no error)
+            - Example: PDF has 50 pages, request (1, 100) → reads pages 1-50
+            
+            When page_range is specified, the doc_id is still based on the
+            original file (not the page range). Use PDF.__add__ to merge
+            multiple page ranges and then set the correct doc_id.
         """
         # Check if mineru is installed
         try:
@@ -189,6 +198,42 @@ class MinerUReader(BaseReader):
         # Get local file path (download if URL)
         local_path = self._get_local_path(info)
         
+        # Get total page count for validation
+        actual_pages = self._get_pdf_page_count(local_path)
+        
+        # Convert page_range to MinerU's start_page_id/end_page_id (0-based)
+        # Note: pypdfium2's end_page_id is INCLUSIVE, so we need end_page - 1
+        start_page_id = 0
+        end_page_id = None
+        if page_range is not None:
+            start_page, end_page = page_range
+            
+            # Validate: negative values
+            if start_page < 1 or end_page < 1:
+                raise ValueError(
+                    f"Invalid page_range: page numbers must be >= 1. "
+                    f"Got: start={start_page}, end={end_page}"
+                )
+            
+            # Validate: end < start
+            if end_page < start_page:
+                raise ValueError(
+                    f"Invalid page_range: end ({end_page}) must be >= start ({start_page})"
+                )
+            
+            # Auto-adjust if exceeds actual pages
+            if actual_pages is not None:
+                if start_page > actual_pages:
+                    raise ValueError(
+                        f"Invalid page_range: start ({start_page}) exceeds "
+                        f"total pages ({actual_pages})"
+                    )
+                if end_page > actual_pages:
+                    end_page = actual_pages
+            
+            start_page_id = start_page - 1  # Convert 1-based to 0-based
+            end_page_id = end_page - 1      # Convert 1-based to 0-based (inclusive)
+        
         # Create temporary output directory
         with tempfile.TemporaryDirectory() as temp_output_dir:
             # Read PDF bytes
@@ -196,9 +241,9 @@ class MinerUReader(BaseReader):
             pdf_file_name = Path(local_path).stem
             
             # Handle page range
-            if self.start_page_id > 0 or self.end_page_id is not None:
+            if start_page_id > 0 or end_page_id is not None:
                 pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(
-                    pdf_bytes, self.start_page_id, self.end_page_id
+                    pdf_bytes, start_page_id, end_page_id
                 )
             
             # Parse based on backend
@@ -271,14 +316,15 @@ class MinerUReader(BaseReader):
             image_dir = Path(local_image_dir).name
             
             if self.backend == "pipeline":
-                md_content = pipeline_union_make(pdf_info, MakeMode.MM_MD, image_dir)
                 content_list = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
             else:
-                md_content = vlm_union_make(pdf_info, MakeMode.MM_MD, image_dir)
                 content_list = vlm_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
             
-            # Build pages from content_list
-            pages = self._build_pages_from_content_list(content_list)
+            # Build content and pages together from content_list
+            # This ensures consistency and accurate page boundaries
+            md_content, pages = self._build_content_and_pages_from_content_list(
+                content_list, start_page_id
+            )
             
             # Extract custom metadata
             custom_metadata = self._extract_custom_metadata(middle_json)
@@ -311,75 +357,132 @@ class MinerUReader(BaseReader):
             # For now, assume URL is directly accessible by MinerU
             return info.source
     
-
-    def _build_pages_from_content_list(self, content_list: list[dict]) -> list[Page]:
+    @staticmethod
+    def _get_pdf_page_count(source: str) -> Optional[int]:
         """
-        Build Page objects from MinerU content_list
+        Get total page count of a PDF file
         
         Args:
-            content_list: Content list from MinerU output
+            source: Path to PDF file
             
         Returns:
-            List of Page objects
+            Total page count, or None if cannot determine
         """
-        # Group by page number
+        try:
+            # Use pypdf for lightweight page count
+            from pypdf import PdfReader
+            reader = PdfReader(source)
+            return len(reader.pages)
+        except Exception:
+            # Fallback: try pypdfium2 (already used by MinerU)
+            try:
+                import pypdfium2
+                pdf = pypdfium2.PdfDocument(source)
+                count = len(pdf)
+                pdf.close()
+                return count
+            except Exception:
+                return None
+    
+
+    def _build_content_and_pages_from_content_list(
+        self, 
+        content_list: list[dict], 
+        start_page_id: int = 0
+    ) -> tuple[str, list[Page]]:
+        """
+        Build pdf.content and pages together from content_list.
+        
+        This ensures:
+        1. pdf.content and page.content are consistent (built from same source)
+        2. Page boundaries in pdf.content are known (for accurate span mapping)
+        
+        Args:
+            content_list: Content list from MinerU output (preserves original order)
+            start_page_id: Start page ID (0-based) from original PDF
+            
+        Returns:
+            Tuple of (full_content, pages) where each page has metadata.span set
+        """
+        # Group by page number, preserving order within each page
         page_items = {}
         
         for item in content_list:
-            page_num = item.get("page_idx", 0) + 1  # Convert to 1-based
+            page_idx = item.get("page_idx", 0)
+            page_num = page_idx + 1 + start_page_id
             
             if page_num not in page_items:
-                page_items[page_num] = {
-                    "texts": [],
-                    "tables": [],
-                    "images": []
-                }
+                page_items[page_num] = []
             
-            # Classify item type
-            item_type = item.get("type", "text")
-            if item_type == "text":
-                page_items[page_num]["texts"].append({
-                    "text": item.get("text", ""),
-                    "type": item.get("layout_type", "text"),
-                    "bbox": item.get("bbox")
-                })
-            elif item_type == "table":
-                page_items[page_num]["tables"].append({
-                    "html": item.get("html"),
-                    "latex": item.get("latex"),
-                    "bbox": item.get("bbox")
-                })
-            elif item_type in ["image", "figure"]:
-                page_items[page_num]["images"].append({
-                    "path": item.get("img_path"),
-                    "caption": item.get("caption"),
-                    "bbox": item.get("bbox")
-                })
+            page_items[page_num].append(item)
         
-        # Create Page objects
+        # Build content and pages together
+        all_parts = []
         pages = []
+        
         for page_num in sorted(page_items.keys()):
             items = page_items[page_num]
             
-            # Build page content as simple text representation
-            page_text_parts = []
-            for text_item in items["texts"]:
-                page_text_parts.append(text_item.get("text", ""))
-            page_content = "\n\n".join(page_text_parts)
+            # Record where this page starts in the full content
+            page_start = len("\n\n".join(all_parts)) if all_parts else 0
             
-            pages.append(Page(
+            # Build page content preserving original order
+            page_parts = []
+            text_count = 0
+            table_count = 0
+            image_count = 0
+            
+            for item in items:
+                item_type = item.get("type", "text")
+                
+                if item_type == "text":
+                    text = item.get("text", "")
+                    if text.strip():
+                        page_parts.append(text)
+                        text_count += 1
+                        
+                elif item_type == "table":
+                    # Prefer html field, fall back to table_body
+                    html = item.get("html") or item.get("table_body")
+                    if html:
+                        page_parts.append(html)
+                        table_count += 1
+                        
+                elif item_type in ["image", "figure"]:
+                    caption = item.get("caption")
+                    if caption:
+                        page_parts.append(f"[Image: {caption}]")
+                    image_count += 1
+            
+            page_content = "\n\n".join(page_parts)
+            
+            # Add to full content
+            if page_parts:
+                all_parts.extend(page_parts)
+            
+            # Calculate page end position
+            full_content_so_far = "\n\n".join(all_parts)
+            page_end = len(full_content_so_far)
+            
+            # Create Page with span info
+            page = Page(
                 page_number=page_num,
-                content=page_content,  # String content
-                units=[],  # Empty units list
+                content=page_content,
+                units=[],
                 metadata={
-                    "text_count": len(items["texts"]),
-                    "table_count": len(items["tables"]),
-                    "image_count": len(items["images"])
+                    "text_count": text_count,
+                    "table_count": table_count,
+                    "image_count": image_count,
+                    "span": (page_start, page_end)  # Position in pdf.content
                 }
-            ))
+            )
+            pages.append(page)
         
-        return pages
-    
+        # Build final full content
+        full_content = "\n\n".join(all_parts)
+        
+        return full_content, pages
+
     def _extract_custom_metadata(self, middle_json: dict) -> dict[str, Any]:
         """
         Extract custom metadata from MinerU middle JSON
