@@ -137,8 +137,40 @@ class OpenAIProvider(BaseProvider):
                 return len(self._tokenizer.encode(text))
             except Exception:
                 pass
-        # Fallback: rough estimation (1 token â‰?4 characters)
+        # Fallback: rough estimation (1 token ï¿½?4 characters)
         return len(text) // 4
+    
+    def _truncate_text(self, text: str, max_tokens: int = 8000) -> str:
+        """
+        Truncate text to max tokens if it exceeds the limit
+        
+        Args:
+            text: Input text
+            max_tokens: Maximum allowed tokens (default: 8000, safe for 8192 limit)
+        
+        Returns:
+            Truncated text if needed, otherwise original text
+        """
+        token_count = self._count_tokens(text)
+        
+        if token_count <= max_tokens:
+            return text
+        
+        # Binary search to find the right length
+        if self._tokenizer:
+            # Accurate truncation using tiktoken
+            tokens = self._tokenizer.encode(text)
+            truncated_tokens = tokens[:max_tokens]
+            return self._tokenizer.decode(truncated_tokens)
+        else:
+            # Rough estimation: truncate to max_tokens * 4 characters
+            char_limit = max_tokens * 4
+            truncated = text[:char_limit]
+            logger.warning(
+                f"Text truncated from ~{token_count} tokens to ~{max_tokens} tokens "
+                f"(character-based estimation). Consider installing tiktoken for accurate truncation."
+            )
+            return truncated
     
     def _create_token_aware_batches(self, texts: list[str], max_tokens: int = 250000, max_inputs: int = 2048) -> list[list[str]]:
         """
@@ -215,6 +247,7 @@ class OpenAIProvider(BaseProvider):
         Automatically splits large batches to respect both:
         - Input count limit: 2,048 inputs per request
         - Token limit: 250,000 tokens per request (with safety buffer)
+        - Individual text limit: 8,000 tokens per text (auto-truncates if needed)
         
         Args:
             texts: List of input texts
@@ -229,8 +262,19 @@ class OpenAIProvider(BaseProvider):
         if not texts:
             return []
         
+        # Truncate oversized texts before batching
+        truncated_texts = []
+        for idx, text in enumerate(texts):
+            truncated = self._truncate_text(text, max_tokens=8000)
+            if len(truncated) < len(text):
+                logger.warning(
+                    f"Text {idx} truncated from {len(text)} to {len(truncated)} characters "
+                    f"to fit within token limit"
+                )
+            truncated_texts.append(truncated)
+        
         # Create token-aware batches
-        batches = self._create_token_aware_batches(texts, max_tokens=250000, max_inputs=2048)
+        batches = self._create_token_aware_batches(truncated_texts, max_tokens=250000, max_inputs=2048)
         
         if len(batches) > 1:
             logger.info(f"Split {len(texts)} texts into {len(batches)} batches to respect token limits")
@@ -255,6 +299,7 @@ class OpenAIProvider(BaseProvider):
                 all_embeddings.extend(batch_embeddings)
             except (APIError, RateLimitError, APIConnectionError) as e:
                 logger.error(f"Batch {batch_idx}/{len(batches)} failed: {e}")
+                # Re-raise to let upper layer handle (e.g., skip this unit, log, etc.)
                 raise RuntimeError(f"OpenAI API error: {e}")
         
         return all_embeddings

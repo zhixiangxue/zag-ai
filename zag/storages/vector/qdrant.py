@@ -445,17 +445,24 @@ class QdrantVectorStore(BaseVectorStore):
             text_units: List of TextUnits
             
         Returns:
-            List of PointStruct objects
+            List of PointStruct objects (may be fewer than input if embedding fails)
         """
         from qdrant_client.models import PointStruct
+        from ...utils import logger
         
-        # Batch embedding
+        # Batch embedding with error handling
         embedding_contents = [
             unit.embedding_content if unit.embedding_content else unit.content
             for unit in text_units
         ]
         embedder = self._get_embedder_for_unit(text_units[0])
-        embeddings = embedder.embed_batch(embedding_contents)
+        
+        try:
+            embeddings = embedder.embed_batch(embedding_contents)
+        except Exception as e:
+            logger.error(f"Failed to embed {len(text_units)} text units: {e}")
+            logger.warning(f"Skipping all {len(text_units)} text units due to embedding failure")
+            return []  # Skip all units in this batch
         
         points = []
         for unit, embedding in zip(text_units, embeddings):
@@ -493,17 +500,24 @@ class QdrantVectorStore(BaseVectorStore):
             table_units: List of TableUnits
             
         Returns:
-            List of PointStruct objects
+            List of PointStruct objects (may be fewer than input if embedding fails)
         """
         from qdrant_client.models import PointStruct
+        from ...utils import logger
         
-        # Batch embedding
+        # Batch embedding with error handling
         embedding_contents = [
             unit.embedding_content if unit.embedding_content else unit.content
             for unit in table_units
         ]
         embedder = self._get_embedder_for_unit(table_units[0])
-        embeddings = embedder.embed_batch(embedding_contents)
+        
+        try:
+            embeddings = embedder.embed_batch(embedding_contents)
+        except Exception as e:
+            logger.error(f"Failed to embed {len(table_units)} table units: {e}")
+            logger.warning(f"Skipping all {len(table_units)} table units due to embedding failure")
+            return []  # Skip all units in this batch
         
         points = []
         for unit, embedding in zip(table_units, embeddings):
