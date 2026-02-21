@@ -182,9 +182,10 @@ class HeadingCorrector(BasePostprocessor):
                 pattern_with_prefix = r'^#{0,6}\s*' + heading_pattern
                 
                 # Try to replace with existing markdown prefix first (at line start)
+                # Use lambda to avoid regex escape issues in replacement string
                 new_content, count = re.subn(
                     pattern_with_prefix, 
-                    markdown_heading, 
+                    lambda m: markdown_heading,  # Return literal string, no regex interpretation
                     content, 
                     count=1, 
                     flags=re.MULTILINE | re.IGNORECASE
@@ -194,7 +195,7 @@ class HeadingCorrector(BasePostprocessor):
                     # No existing markdown prefix found, try plain text replacement
                     content = re.sub(
                         heading_pattern, 
-                        markdown_heading, 
+                        lambda m: markdown_heading,  # Same protection here
                         content, 
                         count=1, 
                         flags=re.IGNORECASE
