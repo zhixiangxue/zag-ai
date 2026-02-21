@@ -95,12 +95,6 @@ class PDF(PageableDocument):
         merged_metadata = self.metadata.model_copy(deep=True) if self.metadata else None
         
         if merged_metadata and other.metadata:
-            # Add page counts
-            other_page_count = other.metadata.custom.get("page_count", 0) if other.metadata.custom else 0
-            if merged_metadata.custom:
-                current_page_count = merged_metadata.custom.get("page_count", 0)
-                merged_metadata.custom["page_count"] = current_page_count + other_page_count
-            
             # Add content lengths
             if other.metadata.content_length:
                 merged_metadata.content_length = (merged_metadata.content_length or 0) + other.metadata.content_length

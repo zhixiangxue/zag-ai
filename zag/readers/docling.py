@@ -369,10 +369,6 @@ class DoclingReader(BaseReader):
         # Extract custom metadata
         custom = {}
         
-        # Add document name if available
-        if hasattr(docling_doc, 'name') and docling_doc.name:
-            custom['doc_name'] = docling_doc.name
-        
         return DocumentMetadata(
             source=info.source,
             source_type=info.source_type.value,
