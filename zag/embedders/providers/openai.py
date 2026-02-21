@@ -172,13 +172,13 @@ class OpenAIProvider(BaseProvider):
             )
             return truncated
     
-    def _create_token_aware_batches(self, texts: list[str], max_tokens: int = 250000, max_inputs: int = 2048) -> list[list[str]]:
+    def _create_token_aware_batches(self, texts: list[str], max_tokens: int = 200000, max_inputs: int = 2048) -> list[list[str]]:
         """
         Split texts into batches based on both token count and input count
         
         Args:
             texts: List of texts to batch
-            max_tokens: Maximum tokens per batch (default: 250,000 for safety)
+            max_tokens: Maximum tokens per batch (default: 200,000 for safety, API limit is 300,000)
             max_inputs: Maximum number of inputs per batch (default: 2,048)
         
         Returns:
@@ -246,7 +246,7 @@ class OpenAIProvider(BaseProvider):
         
         Automatically splits large batches to respect both:
         - Input count limit: 2,048 inputs per request
-        - Token limit: 250,000 tokens per request (with safety buffer)
+        - Token limit: 200,000 tokens per request (with safety buffer, API limit is 300,000)
         - Individual text limit: 8,000 tokens per text (auto-truncates if needed)
         
         Args:
@@ -274,7 +274,7 @@ class OpenAIProvider(BaseProvider):
             truncated_texts.append(truncated)
         
         # Create token-aware batches
-        batches = self._create_token_aware_batches(truncated_texts, max_tokens=250000, max_inputs=2048)
+        batches = self._create_token_aware_batches(truncated_texts, max_tokens=200000, max_inputs=2048)
         
         if len(batches) > 1:
             logger.info(f"Split {len(texts)} texts into {len(batches)} batches to respect token limits")
