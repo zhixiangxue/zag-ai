@@ -58,6 +58,12 @@ class TableSplitter(BaseSplitter):
         re.MULTILINE
     )
     
+    # HTML table pattern
+    HTML_TABLE_PATTERN = re.compile(
+        r'<table[^>]*>.*?</table>',
+        re.DOTALL | re.IGNORECASE
+    )
+    
     def __init__(self, max_chunk_tokens: int = 1500, min_rows: int = 1):
         """
         Initialize table splitter
@@ -128,8 +134,11 @@ class TableSplitter(BaseSplitter):
             return self._split_tables_in_content(content, None)
     
     def _has_table(self, content: str) -> bool:
-        """Check if content contains Markdown tables"""
-        return bool(self.TABLE_PATTERN.search(content))
+        """Check if content contains Markdown or HTML tables"""
+        return bool(
+            self.TABLE_PATTERN.search(content) or 
+            self.HTML_TABLE_PATTERN.search(content)
+        )
     
     def _split_tables_in_content(
         self,
@@ -146,14 +155,30 @@ class TableSplitter(BaseSplitter):
         Returns:
             List of text units
         """
-        # Find all tables
-        tables = []
-        for match in self.TABLE_PATTERN.finditer(content):
-            tables.append({
+        # Find all markdown tables
+        markdown_tables = [
+            {
                 'start': match.start(),
                 'end': match.end(),
-                'text': match.group(0)
-            })
+                'text': match.group(0),
+                'type': 'markdown'
+            }
+            for match in self.TABLE_PATTERN.finditer(content)
+        ]
+        
+        # Find all HTML tables
+        html_tables = [
+            {
+                'start': match.start(),
+                'end': match.end(),
+                'text': match.group(0),
+                'type': 'html'
+            }
+            for match in self.HTML_TABLE_PATTERN.finditer(content)
+        ]
+        
+        # Merge and sort by position
+        tables = sorted(markdown_tables + html_tables, key=lambda x: x['start'])
         
         if not tables:
             # No tables, return as single unit
@@ -203,6 +228,24 @@ class TableSplitter(BaseSplitter):
     def _split_table(self, table_text: str) -> list[str]:
         """
         Split a table into chunks by token count
+        
+        Routes to markdown or HTML splitter based on format.
+        
+        Args:
+            table_text: Markdown or HTML table as string
+            
+        Returns:
+            List of table chunks (each with headers)
+        """
+        # Detect table type and route to appropriate splitter
+        if table_text.strip().startswith('<table'):
+            return self._split_html_table(table_text)
+        else:
+            return self._split_markdown_table(table_text)
+    
+    def _split_markdown_table(self, table_text: str) -> list[str]:
+        """
+        Split a markdown table into chunks by token count
         
         Strategy:
         1. Count header tokens
@@ -272,6 +315,99 @@ class TableSplitter(BaseSplitter):
             chunks.append('\n'.join(chunk_lines))
         
         return chunks
+    
+    def _split_html_table(self, table_html: str) -> list[str]:
+        """
+        Split HTML table into chunks by token count
+        
+        Strategy:
+        1. Parse HTML with BeautifulSoup
+        2. Extract header rows (<thead> or first <tr>)
+        3. Split data rows by token count
+        4. Each chunk keeps the header
+        
+        Args:
+            table_html: HTML table as string
+            
+        Returns:
+            List of HTML table chunks (each with headers)
+        """
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            # If bs4 not available, return as single chunk
+            return [table_html]
+        
+        soup = BeautifulSoup(table_html, 'html.parser')
+        table = soup.find('table')
+        
+        if not table:
+            return [table_html]
+        
+        # Extract header rows
+        thead = table.find('thead')
+        if thead:
+            header_rows = thead.find_all('tr')
+            tbody = table.find('tbody')
+            data_rows = tbody.find_all('tr') if tbody else []
+        else:
+            # Use first row as header
+            all_rows = table.find_all('tr')
+            if not all_rows:
+                return [table_html]
+            header_rows = [all_rows[0]]
+            data_rows = all_rows[1:]
+        
+        # Build header HTML
+        header_html = ''.join(str(row) for row in header_rows)
+        header_tokens = self._count_tokens(header_html)
+        
+        # Check if needs splitting
+        total_tokens = self._count_tokens(table_html)
+        if total_tokens <= self.max_chunk_tokens:
+            return [table_html]
+        
+        # Extract table attributes for reconstruction
+        table_attrs = ' '.join(f'{k}="{v}"' for k, v in table.attrs.items())
+        table_opening = f'<table {table_attrs}>' if table_attrs else '<table>'
+        
+        # Split by rows
+        chunks = []
+        current_chunk_rows = []
+        current_tokens = header_tokens
+        
+        for row in data_rows:
+            row_html = str(row)
+            row_tokens = self._count_tokens(row_html)
+            
+            # Check if adding this row would exceed limit
+            if current_chunk_rows and current_tokens + row_tokens > self.max_chunk_tokens:
+                # Save current chunk
+                chunk_html = f"{table_opening}{header_html}{''.join(current_chunk_rows)}</table>"
+                chunks.append(chunk_html)
+                
+                # Start new chunk
+                current_chunk_rows = [row_html]
+                current_tokens = header_tokens + row_tokens
+            else:
+                # Add row to current chunk
+                current_chunk_rows.append(row_html)
+                current_tokens += row_tokens
+                
+                # Ensure at least min_rows even if first row exceeds limit
+                if len(current_chunk_rows) >= self.min_rows and current_tokens > self.max_chunk_tokens:
+                    # Save chunk with min_rows satisfied
+                    chunk_html = f"{table_opening}{header_html}{''.join(current_chunk_rows)}</table>"
+                    chunks.append(chunk_html)
+                    current_chunk_rows = []
+                    current_tokens = header_tokens
+        
+        # Save last chunk if any
+        if current_chunk_rows:
+            chunk_html = f"{table_opening}{header_html}{''.join(current_chunk_rows)}</table>"
+            chunks.append(chunk_html)
+        
+        return chunks if chunks else [table_html]
     
     def __repr__(self) -> str:
         """String representation"""

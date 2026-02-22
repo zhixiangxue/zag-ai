@@ -238,6 +238,7 @@ class QdrantVectorStore(BaseVectorStore):
         port: int = 6333,
         grpc_port: Optional[int] = None,
         prefer_grpc: bool = True,
+        timeout: int = 300,
         collection_name: str = "default",
         embedder: Optional['BaseEmbedder'] = None,
         text_embedder: Optional['BaseEmbedder'] = None,
@@ -255,6 +256,7 @@ class QdrantVectorStore(BaseVectorStore):
             port: Qdrant HTTP port (default: 6333)
             grpc_port: Qdrant gRPC port (optional, default: port+1)
             prefer_grpc: Use gRPC if available (default: True, much faster)
+            timeout: Request timeout in seconds (default: 300, i.e. 5 minutes)
             collection_name: Name of the collection
             embedder: Single embedder for all content types
             text_embedder: Embedder for text/table units
@@ -275,6 +277,7 @@ class QdrantVectorStore(BaseVectorStore):
             ...     host="localhost",
             ...     port=6333,
             ...     grpc_port=6334,
+            ...     timeout=300,
             ...     collection_name="docs",
             ...     embedder=embedder
             ... )
@@ -309,16 +312,21 @@ class QdrantVectorStore(BaseVectorStore):
         if grpc_port is None and prefer_grpc:
             grpc_port = port + 1
         
-        # Create client with gRPC preference
+        # Create client with gRPC preference and timeout
         if prefer_grpc and grpc_port:
             client = QdrantClient(
                 host=host,
                 port=port,
                 grpc_port=grpc_port,
-                prefer_grpc=True
+                prefer_grpc=True,
+                timeout=timeout
             )
         else:
-            client = QdrantClient(host=host, port=port)
+            client = QdrantClient(
+                host=host,
+                port=port,
+                timeout=timeout
+            )
         
         return cls(
             client=client,
