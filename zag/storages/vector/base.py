@@ -419,6 +419,54 @@ class BaseVectorStore(ABC):
         """
         pass
     
+    def patch(
+        self,
+        unit_ids: Union[str, list[str]],
+        fields: Dict[str, Any],
+    ) -> None:
+        """
+        Partially update specific fields for given unit IDs without touching vectors.
+        
+        This method implements HTTP PATCH semantics: only the specified fields are updated,
+        all other fields remain unchanged. This is safer than update() which re-embeds
+        and replaces the entire point.
+        
+        Not all vector stores support this operation. Default implementation raises
+        NotImplementedError. Subclasses should override if they support partial updates.
+        
+        Args:
+            unit_ids: Single unit ID or list of unit IDs to update
+            fields: Dict of fields to update. Supports dot notation for nested fields.
+                   Example: {"metadata.custom.lender": "Plaza", "status": "processed"}
+        
+        Raises:
+            NotImplementedError: If the vector store doesn't support partial updates
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support patch. "
+            f"Use update() instead, or implement patch() for this store."
+        )
+    
+    async def apatch(
+        self,
+        unit_ids: Union[str, list[str]],
+        fields: Dict[str, Any],
+    ) -> None:
+        """
+        Async version of patch
+        
+        Args:
+            unit_ids: Single unit ID or list of unit IDs to update
+            fields: Dict of fields to update
+            
+        Raises:
+            NotImplementedError: If the vector store doesn't support partial updates
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support apatch. "
+            f"Use aupdate() instead, or implement apatch() for this store."
+        )
+    
     @abstractmethod
     def clear(self) -> None:
         """

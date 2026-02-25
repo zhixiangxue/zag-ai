@@ -816,6 +816,95 @@ class QdrantVectorStore(BaseVectorStore):
         """
         await self.aadd(units)
     
+    def _set_nested_value(self, data: Dict[str, Any], path: str, value: Any) -> None:
+        """
+        Set a value in a nested dict using dot notation path.
+        
+        Example:
+            data = {}
+            _set_nested_value(data, "metadata.custom.lender", "Plaza")
+            # data is now {"metadata": {"custom": {"lender": "Plaza"}}}
+        """
+        keys = path.split(".")
+        current = data
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            current = current[key]
+        current[keys[-1]] = value
+    
+    def patch(
+        self,
+        unit_ids: Union[str, list[str]],
+        fields: Dict[str, Any],
+    ) -> None:
+        """
+        Partially update specific fields for given unit IDs without touching vectors.
+        
+        Uses Qdrant's native set_payload with 'key' parameter for nested field updates.
+        This is the safest approach: no need to fetch/merge/overwrite, Qdrant handles
+        the merge internally at the specified nested path.
+        
+        Args:
+            unit_ids: Single unit ID or list of unit IDs to update
+            fields: Dict of fields to update. Supports dot notation for nested fields.
+                   Example: {"metadata.custom.lender": "Plaza", "status": "processed"}
+        
+        Example:
+            # Update nested field metadata.custom.lender
+            store.patch(
+                unit_ids=["unit-1", "unit-2"],
+                fields={"metadata.custom.lender": "Plaza"}
+            )
+            # Qdrant will set payload.metadata.custom.lender = "Plaza"
+            # without touching any other fields
+        """
+        # Normalize to list
+        if isinstance(unit_ids, str):
+            unit_ids = [unit_ids]
+        
+        if not unit_ids or not fields:
+            return
+        
+        # Convert string IDs to Qdrant integer IDs
+        qdrant_ids = [self._unit_id_to_qdrant_id(uid) for uid in unit_ids]
+        
+        # Use set_payload with 'key' parameter for each field
+        for path, value in fields.items():
+            parts = path.rsplit(".", 1)
+            
+            if len(parts) == 2:
+                # Nested path: e.g., "metadata.custom.lender" -> key="metadata.custom", payload={"lender": value}
+                parent_key, field_name = parts
+                self.client.set_payload(
+                    collection_name=self.collection_name,
+                    payload={field_name: value},
+                    key=parent_key,
+                    points=qdrant_ids,
+                )
+            else:
+                # Top-level field: e.g., "status" -> key=None, payload={"status": value}
+                self.client.set_payload(
+                    collection_name=self.collection_name,
+                    payload={path: value},
+                    points=qdrant_ids,
+                )
+    
+    async def apatch(
+        self,
+        unit_ids: Union[str, list[str]],
+        fields: Dict[str, Any],
+    ) -> None:
+        """
+        Async version of patch (uses executor wrapper)
+        
+        Args:
+            unit_ids: Single unit ID or list of unit IDs to update
+            fields: Dict of fields to update
+        """
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self.patch, unit_ids, fields)
+    
     def clear(self) -> None:
         """Clear all vectors from store"""
         # Delete and recreate collection
