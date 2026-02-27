@@ -15,7 +15,7 @@ from uuid import uuid4
 from enum import Enum
 from pydantic import BaseModel, Field, model_validator, field_serializer
 
-from .types import UnitType, RelationType, RetrievalSource
+from .types import UnitType, RelationType, RetrievalSource, ProcessingMode
 from .metadata import UnitMetadata
 
 
@@ -122,6 +122,17 @@ class BaseUnit(BaseModel):
         return self
     
     # ============ View Access Methods ============
+    
+    @property
+    def is_lod(self) -> bool:
+        """Returns True if this unit was indexed in LOD mode.
+        
+        LOD units carry multi-resolution views (LOW/MEDIUM/HIGH/FULL)
+        and have metadata.custom.mode == ProcessingMode.LOD.
+        """
+        if self.metadata and self.metadata.custom:
+            return self.metadata.custom.get("mode") == ProcessingMode.LOD
+        return False
     
     def get_view(self, level: LODLevel) -> Optional[Any]:
         """

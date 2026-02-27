@@ -97,6 +97,66 @@ class Reranker(BaseReranker):
         self._provider = create_provider(provider, model, **config)
         self._provider_name = provider
         self._model = model
+
+    def _build_document(self, unit: BaseUnit) -> str:
+        """Build reranker document text from a unit.
+
+        Prefixes core structural signals (lender, program/guideline, context
+        path, processing mode) before the raw content, so cross-encoder
+        rerankers can better capture query intent like "Non-QM foreclosure
+        seasoning" instead of only seeing flat text.
+        """
+        parts: list[str] = []
+        metadata = getattr(unit, "metadata", None)
+
+        if metadata is not None:
+            # Custom business fields: lender, guideline/program, mode, etc.
+            custom = getattr(metadata, "custom", None)
+            if isinstance(custom, dict):
+                lender = custom.get("lender")
+                guideline = custom.get("guideline")
+                mode = custom.get("mode")
+                if lender:
+                    parts.append(f"[Lender: {lender}]")
+                if guideline:
+                    parts.append(f"[Program: {guideline}]")
+                if mode:
+                    parts.append(f"[Mode: {mode}]")
+
+            # Hierarchical path in the document (e.g. Credit > Derogatory > Foreclosure)
+            context_path = getattr(metadata, "context_path", None)
+            if context_path:
+                path_str = str(context_path)
+                if path_str:
+                    parts.append(f"[Path: {path_str}]")
+
+            # Extracted keywords (if available)
+            keywords = getattr(metadata, "keywords", None)
+            if keywords:
+                # Limit number of keywords to keep prompt compact
+                kw_preview = ", ".join(keywords[:5])
+                parts.append(f"[Keywords: {kw_preview}]")
+
+            # Source document info (file_name is a strong signal for program/guide)
+            document_meta = getattr(metadata, "document", None)
+            if isinstance(document_meta, dict):
+                file_name = document_meta.get("file_name")
+                if file_name:
+                    parts.append(f"[File: {file_name}]")
+
+        prefix = " ".join(parts)
+        content = str(getattr(unit, "content", "") or "")
+
+        if prefix:
+            doc = prefix + "\n" + content
+        else:
+            doc = content
+
+        # Truncate to keep reranker input reasonably bounded
+        max_len = 2000
+        if len(doc) > max_len:
+            return doc[:max_len]
+        return doc
     
     def rerank(
         self, 
@@ -123,8 +183,8 @@ class Reranker(BaseReranker):
         if not units:
             return []
         
-        # Extract document texts from units
-        documents = [str(unit.content) for unit in units]
+        # Extract document texts from units (with structural prefix)
+        documents = [self._build_document(unit) for unit in units]
         
         # Call provider to get scores
         results = self._provider.rerank(query, documents, top_k=top_k)
@@ -135,7 +195,7 @@ class Reranker(BaseReranker):
         # Update units with new scores
         reranked_units = []
         for unit in units:
-            doc_text = str(unit.content)
+            doc_text = self._build_document(unit)
             if doc_text in doc_to_score:
                 # Create a copy to avoid modifying original
                 unit_copy = unit.model_copy()

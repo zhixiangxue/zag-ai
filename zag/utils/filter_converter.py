@@ -504,6 +504,116 @@ class ChromaFilterConverter(FilterConverter):
         return value
 
 
+class MeilisearchFilterConverter(FilterConverter):
+    """Convert filters to Meilisearch filter expression string.
+    
+    Meilisearch uses SQL-like filter syntax and natively supports dot-notation
+    field paths (e.g. metadata.custom.mode) on nested JSON documents.
+    Field paths are passed through unchanged, unlike LanceDB/Chroma which
+    need prefix-stripping.
+    
+    Supported operators: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin
+    Supported logical: $and, $or, $nor
+    
+    Examples:
+        Input : {"metadata.custom.mode": "classic", "unit_type": {"$in": ["text", "table"]}}
+        Output: "metadata.custom.mode = 'classic' AND (unit_type = 'text' OR unit_type = 'table')"
+    """
+    
+    def convert(self, filter_dict: Dict[str, Any]) -> Optional[str]:
+        """Convert filter dict to Meilisearch filter string.
+        
+        Args:
+            filter_dict: Filter dict using MongoDB-style syntax
+            
+        Returns:
+            Meilisearch filter string, or None if empty
+        """
+        if not filter_dict:
+            return None
+        
+        parts: List[str] = []
+        
+        for key, value in filter_dict.items():
+            if key == "$and":
+                sub_parts = [self.convert(c) for c in value]
+                sub_parts = [s for s in sub_parts if s]
+                if sub_parts:
+                    parts.append("(" + " AND ".join(sub_parts) + ")")
+            elif key == "$or":
+                sub_parts = [self.convert(c) for c in value]
+                sub_parts = [s for s in sub_parts if s]
+                if sub_parts:
+                    parts.append("(" + " OR ".join(sub_parts) + ")")
+            elif key == "$nor":
+                sub_parts = [self.convert(c) for c in value]
+                sub_parts = [s for s in sub_parts if s]
+                if sub_parts:
+                    # NOR = NOT (a OR b)
+                    parts.append("NOT (" + " OR ".join(sub_parts) + ")")
+            else:
+                cond = self._convert_field_condition(key, value)
+                if cond:
+                    parts.append(cond)
+        
+        if not parts:
+            return None
+        return " AND ".join(parts)
+    
+    def _convert_field_condition(self, key: str, value: Any) -> Optional[str]:
+        """Convert a single field condition to Meilisearch filter expression.
+        
+        Args:
+            key: Field path, dot-notation preserved as-is (e.g. metadata.custom.mode)
+            value: Scalar value (equality) or operator dict
+            
+        Returns:
+            Meilisearch filter condition string, or None
+        """
+        # Simple equality: {"status": "active"}
+        if not isinstance(value, dict):
+            return f"{key} = {self._fmt(value)}"
+        
+        conditions: List[str] = []
+        for op, op_value in value.items():
+            if op == "$eq":
+                conditions.append(f"{key} = {self._fmt(op_value)}")
+            elif op == "$ne":
+                conditions.append(f"{key} != {self._fmt(op_value)}")
+            elif op == "$gt":
+                conditions.append(f"{key} > {self._fmt(op_value)}")
+            elif op == "$gte":
+                conditions.append(f"{key} >= {self._fmt(op_value)}")
+            elif op == "$lt":
+                conditions.append(f"{key} < {self._fmt(op_value)}")
+            elif op == "$lte":
+                conditions.append(f"{key} <= {self._fmt(op_value)}")
+            elif op == "$in":
+                if isinstance(op_value, list) and op_value:
+                    or_parts = [f"{key} = {self._fmt(v)}" for v in op_value]
+                    conditions.append("(" + " OR ".join(or_parts) + ")")
+            elif op == "$nin":
+                if isinstance(op_value, list) and op_value:
+                    or_parts = [f"{key} = {self._fmt(v)}" for v in op_value]
+                    conditions.append("NOT (" + " OR ".join(or_parts) + ")")
+        
+        if not conditions:
+            return None
+        return " AND ".join(conditions)
+    
+    def _fmt(self, value: Any) -> str:
+        """Format a scalar value for Meilisearch filter expression."""
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return str(value).lower()
+        if isinstance(value, (int, float)):
+            return str(value)
+        # String: wrap in single quotes, escape internal single quotes
+        escaped = str(value).replace("'", "''")
+        return f"'{escaped}'"
+
+
 class MilvusFilterConverter(FilterConverter):
     """Convert filters to Milvus format.
     
@@ -552,7 +662,7 @@ def convert_filter(filter_dict: Dict[str, Any], engine: str = "qdrant") -> Any:
     
     Args:
         filter_dict: Filter dict using MongoDB-style syntax
-        engine: Vector store engine type ("qdrant", "chroma", "lancedb", "milvus")
+        engine: Vector store engine type ("qdrant", "chroma", "lancedb", "milvus", "meilisearch")
         
     Returns:
         Target vector store's filter object or None
@@ -561,10 +671,13 @@ def convert_filter(filter_dict: Dict[str, Any], engine: str = "qdrant") -> Any:
         >>> # For Qdrant (default)
         >>> filter = convert_filter({"status": "active", "age": {"$gte": 18}})
         
+        >>> # For Meilisearch (returns filter string)
+        >>> filter = convert_filter({"metadata.custom.mode": "classic"}, engine="meilisearch")
+        
         >>> # For Chroma
         >>> filter = convert_filter({"status": "active"}, engine="chroma")
         
-        >>> # For LanceDB (future)
+        >>> # For LanceDB
         >>> filter = convert_filter({"status": "active"}, engine="lancedb")
     """
     if engine == "qdrant":
@@ -579,8 +692,11 @@ def convert_filter(filter_dict: Dict[str, Any], engine: str = "qdrant") -> Any:
     elif engine == "milvus":
         converter = MilvusFilterConverter()
         return converter.convert(filter_dict)
+    elif engine == "meilisearch":
+        converter = MeilisearchFilterConverter()
+        return converter.convert(filter_dict)
     else:
-        raise ValueError(f"Unsupported engine: {engine}. Supported: qdrant, chroma, lancedb, milvus")
+        raise ValueError(f"Unsupported engine: {engine}. Supported: qdrant, chroma, lancedb, milvus, meilisearch")
 
 
 # ============================================

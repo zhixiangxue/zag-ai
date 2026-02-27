@@ -12,7 +12,7 @@ import meilisearch
 from meilisearch.errors import MeilisearchApiError
 
 from ..indexers.base import BaseIndexer
-from ..schemas import BaseUnit
+from ..schemas import BaseUnit, TextUnit, TableUnit
 from ..utils.progress import with_spinner_progress
 
 
@@ -117,34 +117,39 @@ class FullTextIndexer(BaseIndexer):
         """
         Convert BaseUnit to Meilisearch document
         
-        IMPORTANT: All fields from unit.metadata.custom are flattened into the document.
-                   Remember to configure searchable_attributes in configure_settings()
-                   to control which fields are searchable vs filterable only.
+        IMPORTANT:
+            - Preserve nested metadata structure so that field paths (e.g.
+              metadata.custom.mode) are consistent with Qdrant payloads.
+            - Exclude dynamic fields like embedding/score/source which are
+              not needed for fulltext index.
         
         Args:
             unit: BaseUnit instance
         
         Returns:
-            Dictionary representation for Meilisearch
+            Dictionary representation for Meilisearch (JSON-serializable)
         """
-        # Basic fields
-        doc = {
-            self.primary_key: unit.unit_id,
-            "content": unit.content,
-        }
+        # Start from JSON dump of the unit, excluding dynamic fields
+        doc: Dict[str, Any] = unit.model_dump(
+            mode="json",
+            exclude={"embedding", "score", "source"}
+        )
         
-        # Add metadata if available
-        if unit.metadata:
-            # Add context_path if exists
-            if unit.metadata.context_path:
-                doc["context_path"] = unit.metadata.context_path
-            
-            # Flatten custom metadata fields into document
-            if unit.metadata.custom:
-                for key, value in unit.metadata.custom.items():
-                    # Avoid overwriting primary fields
-                    if key not in doc:
-                        doc[key] = value
+        # Normalize content/embedding_content:
+        # - Always remove embedding_content from the doc
+        # - If content is empty, promote embedding_content to content first
+        embedding_content = doc.pop("embedding_content", None) or ""
+        if not (doc.get("content") or "") and embedding_content:
+            doc["content"] = embedding_content
+        
+        # Ensure primary key field is present and correct
+        doc[self.primary_key] = unit.unit_id
+        
+        # For TableUnit, expose JSON-safe table data under df_data
+        if isinstance(unit, TableUnit):
+            json_data = unit.json_data
+            if json_data is not None:
+                doc["df_data"] = json_data
         
         return doc
     

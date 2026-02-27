@@ -10,8 +10,11 @@ import meilisearch
 from meilisearch.errors import MeilisearchApiError
 
 from ..base import BaseRetriever
-from ...schemas import BaseUnit, UnitMetadata
+from ...schemas import BaseUnit, UnitMetadata, UnitType
+from ...schemas import TextUnit, TableUnit, ImageUnit
+from ...schemas import ContentView, LODLevel
 from ...schemas import RetrievalSource
+from ...utils.filter_converter import MeilisearchFilterConverter
 
 
 class FullTextRetriever(BaseRetriever):
@@ -101,48 +104,84 @@ class FullTextRetriever(BaseRetriever):
     
     def _document_to_unit(self, doc: Dict[str, Any], score: Optional[float] = None) -> BaseUnit:
         """
-        Convert Meilisearch document to BaseUnit
-        
+        Convert Meilisearch document back to a typed BaseUnit subclass.
+
+        Mirrors QdrantVectorStore._point_to_unit: reconstructs the correct
+        subclass (TextUnit / TableUnit / ImageUnit) and restores views,
+        chain relationships, and semantic relations from the stored document.
+
         Args:
-            doc: Meilisearch document dictionary
-            score: Relevance score (from _rankingScore if available)
-        
+            doc: Meilisearch document dictionary (same structure as model_dump)
+            score: Relevance score from _rankingScore if available
+
         Returns:
-            BaseUnit instance
+            Typed BaseUnit subclass with all fields restored
         """
-        # Extract unit_id (primary key)
-        unit_id = doc.get(self.primary_key)
-        
-        # Extract content
+        if score is None:
+            score = doc.get("_rankingScore")
+
+        unit_id = doc.get(self.primary_key) or doc.get("unit_id", "")
         content = doc.get("content", "")
-        
-        # Extract context_path if exists
-        context_path = doc.get("context_path")
-        
-        # Build custom metadata from remaining fields
-        custom = {}
-        for key, value in doc.items():
-            if key not in [self.primary_key, "content", "context_path", "_rankingScore"]:
-                custom[key] = value
-        
-        # Get score from _rankingScore if available
-        if score is None and "_rankingScore" in doc:
-            score = doc["_rankingScore"]
-        
-        # Create unit with UnitMetadata
-        unit = BaseUnit(
-            unit_id=unit_id,
-            content=content,
-            metadata=UnitMetadata(
-                context_path=context_path,
-                custom=custom
+        unit_type = doc.get("unit_type", UnitType.TEXT)
+
+        # Reconstruct UnitMetadata from nested dict
+        raw_meta = doc.get("metadata")
+        if isinstance(raw_meta, dict):
+            metadata = UnitMetadata(**{
+                k: v for k, v in raw_meta.items()
+                if k in UnitMetadata.model_fields
+            })
+        else:
+            metadata = UnitMetadata()
+
+        # Restore views
+        views = None
+        raw_views = doc.get("views")
+        if raw_views:
+            views = [ContentView(**v) for v in raw_views]
+
+        # Create typed unit based on unit_type
+        if unit_type == UnitType.TABLE or unit_type == "table":
+            df = None
+            if "df_data" in doc and doc["df_data"] is not None:
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame(doc["df_data"])
+                except Exception:
+                    pass
+            unit = TableUnit(
+                unit_id=unit_id,
+                content=content,
+                embedding_content=doc.get("embedding_content"),
+                caption=doc.get("caption"),
+                df=df,
+                metadata=metadata,
             )
-        )
-        
-        # Attach score if available
+        elif unit_type == UnitType.IMAGE or unit_type == "image":
+            unit = ImageUnit(
+                unit_id=unit_id,
+                content=content,
+                metadata=metadata,
+            )
+        else:
+            # TEXT or unknown -> TextUnit
+            unit = TextUnit(
+                unit_id=unit_id,
+                content=content,
+                metadata=metadata,
+            )
+
+        # Restore chain and semantic relationships
+        unit.doc_id = doc.get("doc_id")
+        unit.prev_unit_id = doc.get("prev_unit_id")
+        unit.next_unit_id = doc.get("next_unit_id")
+        unit.relations = doc.get("relations") or {}
+        unit.views = views
+
         if score is not None:
             unit.score = score
-        
+        unit.source = RetrievalSource.FULLTEXT
+
         return unit
     
     def retrieve(
@@ -195,26 +234,12 @@ class FullTextRetriever(BaseRetriever):
             "showRankingScore": True,  # Always get ranking scores
         }
         
-        # Convert filters dict to Meilisearch filter string
+        # Convert MongoDB-style filters to Meilisearch filter string
         if filters:
-            filter_parts = []
-            for key, value in filters.items():
-                if isinstance(value, str):
-                    filter_parts.append(f"{key} = '{value}'")
-                elif isinstance(value, (int, float)):
-                    filter_parts.append(f"{key} = {value}")
-                elif isinstance(value, list):
-                    # Handle list as OR condition
-                    or_parts = []
-                    for v in value:
-                        if isinstance(v, str):
-                            or_parts.append(f"{key} = '{v}'")
-                        else:
-                            or_parts.append(f"{key} = {v}")
-                    filter_parts.append(f"({' OR '.join(or_parts)})")
-            
-            if filter_parts:
-                search_params["filter"] = " AND ".join(filter_parts)
+            converter = MeilisearchFilterConverter()
+            filter_expr = converter.convert(filters)
+            if filter_expr:
+                search_params["filter"] = filter_expr
         
         # Add sort if provided
         if sort:

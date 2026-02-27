@@ -470,9 +470,21 @@ async def step5_build_indices(units):
     # Clear existing data
     fulltext_indexer.clear()
     fulltext_indexer.configure_settings(
-        searchable_attributes=["content", "context_path"],
-        filterable_attributes=["unit_type", "source_doc_id"],
-        sortable_attributes=["created_at"],
+        searchable_attributes=[
+            "content",
+            "embedding_content",
+            "caption",
+            "df_data",
+            "metadata.context_path",
+            "metadata.keywords",
+        ],
+        filterable_attributes=[
+            "doc_id",
+            "unit_type",
+            "metadata.custom.mode",
+            "metadata.custom.guideline",
+        ],
+        sortable_attributes=["metadata.document.created_at"],
     )
     fulltext_indexer.add(units)
     print(f"   ✅ Fulltext index built: {fulltext_indexer.count()} units")

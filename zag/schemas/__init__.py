@@ -3,7 +3,7 @@ Schemas module - Core data structures
 """
 
 # Import from new modular structure
-from .types import UnitType, RelationType, RetrievalSource
+from .types import UnitType, RelationType, RetrievalSource, ProcessingMode
 from .metadata import DocumentMetadata, UnitMetadata
 from .document import BaseDocument, Page, PageableDocument
 from .unit import BaseUnit, UnitRegistry, UnitCollection, TextUnit, TableUnit, ImageUnit, LODLevel, ContentView
@@ -14,6 +14,7 @@ __all__ = [
     "UnitType",
     "RelationType",
     "RetrievalSource",
+    "ProcessingMode",
     # Metadata
     "DocumentMetadata",
     "UnitMetadata",

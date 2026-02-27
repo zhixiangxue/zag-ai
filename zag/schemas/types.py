@@ -42,3 +42,11 @@ class RetrievalSource(str, Enum):
     
     VECTOR = "vector"        # From vector database (e.g., ChromaDB)
     FULLTEXT = "fulltext"    # From fulltext search engine (e.g., Meilisearch)
+
+
+class ProcessingMode(str, Enum):
+    """Document processing mode - determines how a document was indexed"""
+
+    CLASSIC = "classic"  # Standard chunk-based indexing
+    LOD = "lod"          # Level-of-Detail indexing with multi-resolution views
+    GRAPH = "graph"      # Graph-based indexing
