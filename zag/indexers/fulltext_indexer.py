@@ -349,6 +349,52 @@ class FullTextIndexer(BaseIndexer):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(self._executor, self.delete, unit_ids)
     
+    def delete_by_doc_id(self, doc_id: str) -> int:
+        """
+        Delete all units belonging to a document from the index.
+
+        Meilisearch does not support delete-by-filter natively, so this method
+        first fetches all unit_ids where doc_id matches, then deletes them in
+        one batch call.
+
+        Args:
+            doc_id: Document ID whose units should be removed
+
+        Returns:
+            Number of units deleted
+
+        Example:
+            >>> count = indexer.delete_by_doc_id("doc_abc123")
+        """
+        # Fetch matching unit_ids via search filter (no limit → use large offset)
+        # Meilisearch returns up to 1000 hits per request; page if needed
+        unit_ids: list[str] = []
+        offset = 0
+        batch = 1000
+        while True:
+            result = self.index.get_documents(
+                {"filter": f'doc_id = "{doc_id}"', "limit": batch, "offset": offset}
+            )
+            hits = result.results if hasattr(result, "results") else result.get("results", [])
+            for hit in hits:
+                uid = hit.get(self.primary_key) if isinstance(hit, dict) else getattr(hit, self.primary_key, None)
+                if uid:
+                    unit_ids.append(uid)
+            if len(hits) < batch:
+                break
+            offset += batch
+
+        if unit_ids:
+            task = self.index.delete_documents(unit_ids)
+            self.client.wait_for_task(task.task_uid)
+
+        return len(unit_ids)
+
+    async def adelete_by_doc_id(self, doc_id: str) -> int:
+        """Async version of delete_by_doc_id."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self._executor, self.delete_by_doc_id, doc_id)
+
     def clear(self) -> None:
         """
         Clear all units from the index

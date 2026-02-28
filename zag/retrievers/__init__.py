@@ -14,7 +14,7 @@ from .base import BaseRetriever
 from .basic import VectorRetriever, FullTextRetriever
 
 # Composite layer retrievers
-from .composite import QueryFusionRetriever, FusionMode
+from .composite import QueryFusionRetriever, FusionMode, QueryRewriteRetriever
 
 # Tree-based retrievers
 from .tree import SimpleRetriever, MCTSRetriever, SkeletonRetriever, TreeRetrievalResult
@@ -28,6 +28,7 @@ __all__ = [
     # Composite layer
     "QueryFusionRetriever",
     "FusionMode",
+    "QueryRewriteRetriever",
     # Tree layer
     "SimpleRetriever",
     "MCTSRetriever",
