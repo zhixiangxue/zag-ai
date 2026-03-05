@@ -61,6 +61,13 @@ class CompressionExtractor:
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
         return len(self._encoder.encode(text))
+
+    def truncate(self, text: str, max_tokens: int) -> str:
+        """Truncate text to a maximum number of tokens."""
+        tokens = self._encoder.encode(text)
+        if len(tokens) <= max_tokens:
+            return text
+        return self._encoder.decode(tokens[:max_tokens])
     
     def _extract_html_tables(self, text: str) -> Tuple[str, List[str]]:
         """Extract HTML tables and replace with placeholders
