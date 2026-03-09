@@ -5,81 +5,147 @@ Infer which pages a unit appears on after splitting,
 using sequential ordering + signature matching.
 """
 
+import re
 from typing import Optional
 from difflib import SequenceMatcher
 
 from ..schemas import BaseUnit, Page
 
 
+def normalize_text(text: str) -> str:
+    """
+    Normalize text for fuzzy matching.
+    
+    Removes markdown and HTML formatting, normalizes whitespace:
+    - Removes HTML tags (<td>, </td>, <table>, etc.)
+    - Removes markdown heading markers (###, ##, #)
+    - Removes bold/italic markers (**, *, _, __)
+    - Collapses multiple whitespace/newlines to single space
+    - Strips leading/trailing whitespace
+    
+    Args:
+        text: Input text to normalize
+        
+    Returns:
+        Normalized text
+    """
+    # Remove HTML tags (keep content inside)
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # Remove markdown heading markers
+    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+    
+    # Remove bold/italic markers
+    text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
+    text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)
+    
+    # Collapse multiple whitespace (including newlines) to single space
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Strip leading/trailing whitespace
+    text = text.strip()
+    
+    return text
+
+
 def fuzzy_find_start(
     signature: str,
     haystack: str,
     start_from: int = 0,
-    threshold: float = 0.80
+    threshold: float = 0.80,
+    max_search_range: int = None
 ) -> Optional[int]:
     """
     Find the start position of signature in haystack using fuzzy matching.
     
-    Uses sliding window with similarity scoring.
-    For efficiency, only searches in a reasonable range.
+    Strategy:
+    1. Try exact match with original text first
+    2. Try fuzzy match with original text
+    3. Try match with normalized text (handles HTML/markdown differences)
     
     Args:
         signature: Text to find (e.g., unit.content[:300])
         haystack: Text to search in (full document content)
         start_from: Start search from this position (sequential ordering)
         threshold: Minimum similarity ratio (0.0-1.0)
+        max_search_range: Maximum characters to search (default: entire haystack)
         
     Returns:
-        Best matching position, or None if not found
+        Best matching position in original haystack, or None if not found
     """
-    sig_len = len(signature)
+    if not signature or len(signature) < 10:
+        return None
+    
     haystack_len = len(haystack)
     
-    # If signature is longer than remaining text, truncate
-    if start_from + sig_len > haystack_len:
-        available = haystack_len - start_from
-        if available < 50:
-            return None
-        signature = signature[:available]
-        sig_len = len(signature)
+    # Search range
+    if max_search_range is None:
+        search_end = haystack_len
+    else:
+        search_end = min(haystack_len, start_from + max_search_range)
     
-    # Step 1: Try exact match first (most efficient)
-    # Use first 30 chars for quick exact search
-    quick_sig = signature[:30] if len(signature) > 30 else signature
+    # Strategy 1: Exact match with original text (most reliable)
+    quick_sig = signature[:min(30, len(signature))]
     if len(quick_sig) >= 10:
-        pos = start_from
-        while pos < haystack_len:
-            idx = haystack.find(quick_sig, pos)
-            if idx == -1:
-                break
+        pos = haystack.find(quick_sig, start_from)
+        if pos != -1 and pos < search_end:
             # Verify with longer signature
-            candidate = haystack[idx:idx + sig_len]
-            if len(candidate) == sig_len:
-                score = SequenceMatcher(None, signature, candidate).ratio()
-                if score >= threshold:
-                    return idx
-            pos = idx + 1
-            # Limit iterations
-            if pos > start_from + 50000:
-                break
+            end_pos = min(pos + len(signature), haystack_len)
+            candidate = haystack[pos:end_pos]
+            score = SequenceMatcher(None, signature, candidate).ratio()
+            if score >= threshold:
+                return pos
     
-    # Step 2: Sliding window with smaller step for better coverage
+    # Strategy 2: Sliding window with original text
+    best_pos = None
+    best_score = threshold
+    step = 100
+    
+    for pos in range(start_from, search_end, step):
+        window_end = min(pos + len(signature) * 2, haystack_len)
+        window = haystack[pos:window_end]
+        
+        # Check if quick_sig exists in window
+        idx = window.find(quick_sig)
+        if idx != -1:
+            candidate = window[idx:idx + len(signature)]
+            score = SequenceMatcher(None, signature, candidate).ratio()
+            if score > best_score:
+                best_score = score
+                best_pos = pos + idx
+                if score > 0.95:
+                    return best_pos
+    
+    if best_pos is not None:
+        return best_pos
+    
+    # Strategy 3: Normalized matching (handles HTML/markdown differences)
+    norm_signature = normalize_text(signature)
+    sig_len = len(norm_signature)
+    
+    if sig_len < 10:
+        return None
+    
+    norm_quick_sig = norm_signature[:min(50, sig_len)]
     best_pos = None
     best_score = threshold
     
-    # Use smaller step for better coverage
-    step = max(1, min(50, sig_len // 20))
-    
-    search_end = min(haystack_len - sig_len + 1, start_from + 100000)
-    
     for pos in range(start_from, search_end, step):
-        candidate = haystack[pos:pos + sig_len]
-        score = SequenceMatcher(None, signature, candidate).ratio()
+        window_end = min(pos + len(signature) * 3, haystack_len)
+        window = haystack[pos:window_end]
+        norm_window = normalize_text(window)
+        
+        idx = norm_window.find(norm_quick_sig)
+        if idx == -1:
+            continue
+        
+        compare_end = min(idx + sig_len, len(norm_window))
+        candidate = norm_window[idx:compare_end]
+        score = SequenceMatcher(None, norm_signature, candidate).ratio()
         
         if score > best_score:
             best_score = score
             best_pos = pos
-            
             if score > 0.95:
                 break
     
