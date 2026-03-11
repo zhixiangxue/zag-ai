@@ -148,6 +148,9 @@ class QueryFusionRetriever(BaseRetriever):
         else:  # SIMPLE
             merged_units = self._simple_fusion(all_results)
         
+        # 3. Filter out LOD units (LOD is not for query retrieval)
+        merged_units = [u for u in merged_units if not u.is_lod]
+        
         return merged_units[:k]
     
     async def aretrieve(
@@ -190,6 +193,9 @@ class QueryFusionRetriever(BaseRetriever):
             merged_units = self._relative_score_fusion(list(all_results))
         else:  # SIMPLE
             merged_units = self._simple_fusion(list(all_results))
+        
+        # 3. Filter out LOD units (LOD is not for query retrieval)
+        merged_units = [u for u in merged_units if not u.is_lod]
         
         return merged_units[:k]
     
