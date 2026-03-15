@@ -6,6 +6,7 @@ using sequential ordering + signature matching.
 """
 
 import re
+import unicodedata
 from typing import Optional
 from difflib import SequenceMatcher
 
@@ -29,6 +30,9 @@ def normalize_text(text: str) -> str:
     Returns:
         Normalized text
     """
+    # Normalize Unicode compatibility characters (e.g. fi ligature ﬁ → fi, ﬂ → fl)
+    text = unicodedata.normalize('NFKC', text)
+
     # Remove HTML tags (keep content inside)
     text = re.sub(r'<[^>]+>', '', text)
     
