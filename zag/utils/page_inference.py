@@ -85,7 +85,8 @@ def fuzzy_find_start(
         search_end = min(haystack_len, start_from + max_search_range)
     
     # Strategy 1: Exact match with original text (most reliable)
-    quick_sig = signature[:min(30, len(signature))]
+    # Use 50 chars for quick_sig to avoid false positives from similar sentence structures
+    quick_sig = signature[:min(50, len(signature))]
     if len(quick_sig) >= 10:
         pos = haystack.find(quick_sig, start_from)
         if pos != -1 and pos < search_end:
