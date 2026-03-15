@@ -386,7 +386,7 @@ class FullTextIndexer(BaseIndexer):
 
         if unit_ids:
             task = self.index.delete_documents(unit_ids)
-            self.client.wait_for_task(task.task_uid)
+            self.client.wait_for_task(task.task_uid, timeout_in_ms=60000)
 
         return len(unit_ids)
 

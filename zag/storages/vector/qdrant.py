@@ -760,7 +760,7 @@ class QdrantVectorStore(BaseVectorStore):
         """
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.remove, filters)
-    
+
     def get(self, unit_ids: list[str]) -> list[BaseUnit]:
         """
         Get units by IDs
