@@ -54,10 +54,16 @@ class TextSplitter(BaseSplitter):
         - Only falls back to hard splitting for extremely long sentences
     """
     
-    # Markdown table pattern (same as TableParser)
+    # Markdown table pattern (pipe tables)
     TABLE_PATTERN = re.compile(
         r'(\|.+\|[\r\n]+\|[\s\-:|]+\|[\r\n]+(?:\|.+\|[\r\n]*)+)',
         re.MULTILINE
+    )
+
+    # HTML table pattern (Claude Vision outputs HTML tables)
+    HTML_TABLE_PATTERN = re.compile(
+        r'<table[\s\S]*?</table>',
+        re.IGNORECASE
     )
     
     def __init__(
@@ -145,17 +151,24 @@ class TextSplitter(BaseSplitter):
     
     def _detect_tables(self, content: str) -> list[tuple[int, int, str]]:
         """
-        Detect all tables in content and return their positions
-        
+        Detect all tables in content and return their positions.
+
+        Handles both Markdown pipe tables and HTML <table> blocks
+        (the latter produced by Claude Vision reader).
+
         Args:
             content: Text content to analyze
-            
+
         Returns:
-            List of (start_pos, end_pos, table_text) tuples
+            List of (start_pos, end_pos, table_text) tuples, sorted by start_pos
         """
         tables = []
         for match in self.TABLE_PATTERN.finditer(content):
             tables.append((match.start(), match.end(), match.group(0)))
+        for match in self.HTML_TABLE_PATTERN.finditer(content):
+            tables.append((match.start(), match.end(), match.group(0)))
+        # Sort by position so segments are processed in document order
+        tables.sort(key=lambda t: t[0])
         return tables
     
     def _split_by_semantic_boundaries(

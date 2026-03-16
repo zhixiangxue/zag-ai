@@ -5,6 +5,7 @@ from .base import BaseReader
 __all__ = [
     "BaseReader",
     "CamelotReader",
+    "ClaudeVisionReader",
     "DoclingReader",
     "LightOnOCRReader",
     "MarkItDownReader",
@@ -17,7 +18,11 @@ __all__ = [
 
 def __getattr__(name: str):
     """Lazy import for optional readers"""
-    if name == "CamelotReader":
+    if name == "ClaudeVisionReader":
+        from .claude_vision import ClaudeVisionReader
+
+        return ClaudeVisionReader
+    elif name == "CamelotReader":
         from .camelot import CamelotReader
 
         return CamelotReader

@@ -54,6 +54,7 @@ class RecursiveMergingSplitter(BaseSplitter):
     def __init__(
         self,
         target_token_size: int = 500,
+        sticky_threshold: int = 50,
         tokenizer: Optional[Any] = None
     ):
         """
@@ -61,9 +62,13 @@ class RecursiveMergingSplitter(BaseSplitter):
         
         Args:
             target_token_size: Target token count per chunk (stops merging at this size)
+            sticky_threshold: Units with token count <= this value are always merged
+                forward into the next same-section unit, even if the combined size
+                exceeds target_token_size. Prevents lone heading fragments.
             tokenizer: Custom tokenizer (defaults to tiktoken cl100k_base)
         """
         self.target_token_size = target_token_size
+        self.sticky_threshold = sticky_threshold
         
         # Default to tiktoken (OpenAI's tokenizer)
         if tokenizer is None:
@@ -124,12 +129,26 @@ class RecursiveMergingSplitter(BaseSplitter):
             
             return [unit]
     
+    def _same_section(self, a: TextUnit, b: TextUnit) -> bool:
+        """Check whether two units belong to the same section.
+
+        Units are in the same section when their context_path values are equal.
+        Merging across different context_path boundaries would mix content from
+        separate document sections (e.g., appending the next section's H1 heading
+        to the tail of the previous section).
+        """
+        ctx_a = a.metadata.context_path if a.metadata else None
+        ctx_b = b.metadata.context_path if b.metadata else None
+        return ctx_a == ctx_b
+
     def _merge_units(self, units: list[BaseUnit]) -> list[BaseUnit]:
         """
         Merge units based on token size
         
         This is called by CompositeSplitter in pipeline mode.
         Merges adjacent TextUnits until reaching target token size.
+        Units with different context_path values are never merged, even if
+        they would fit within the token budget.
         
         Args:
             units: List of units to merge
@@ -163,12 +182,17 @@ class RecursiveMergingSplitter(BaseSplitter):
             # Try to merge with current group
             potential_tokens = current_tokens + unit_tokens
             
-            if potential_tokens <= self.target_token_size:
+            # A sticky unit (too small to stand alone) always merges forward
+            # into the next same-section unit, even beyond the target size.
+            is_sticky = current_tokens <= self.sticky_threshold
+            within_budget = potential_tokens <= self.target_token_size
+
+            if (within_budget or is_sticky) and self._same_section(current_merged, unit):
                 # Can merge - use + operator!
                 current_merged = current_merged + unit
                 current_tokens = potential_tokens
             else:
-                # Exceeds target, save current and start new
+                # Exceeds target or crosses section boundary - save current and start new
                 merged_units.append(current_merged)
                 current_merged = unit
                 current_tokens = unit_tokens
@@ -193,4 +217,4 @@ class RecursiveMergingSplitter(BaseSplitter):
     
     def __repr__(self) -> str:
         """String representation"""
-        return f"RecursiveMergingSplitter(target={self.target_token_size})"
+        return f"RecursiveMergingSplitter(target={self.target_token_size}, sticky={self.sticky_threshold})"

@@ -1085,6 +1085,7 @@ class QdrantVectorStore(BaseVectorStore):
             unit = TextUnit(
                 unit_id=unit_id,
                 content=content,
+                embedding_content=payload.get("embedding_content"),  # Restore embedding_content
                 metadata=metadata
             )
         elif unit_type == "table":
@@ -1093,10 +1094,11 @@ class QdrantVectorStore(BaseVectorStore):
             
             # Restore DataFrame if exists
             df = None
-            if "df_data" in payload and "df_columns" in payload:
+            if "df_data" in payload and payload["df_data"]:
                 try:
                     import pandas as pd
-                    df = pd.DataFrame(payload["df_data"])
+                    df_data = payload["df_data"]
+                    df = pd.DataFrame(df_data["rows"], columns=df_data["columns"])
                 except Exception:
                     # If restoration fails, df remains None (fallback to content)
                     pass
