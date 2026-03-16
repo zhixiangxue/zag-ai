@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from .base import BaseReader
 from ..schemas import DocumentMetadata
 from ..schemas.pdf import PDF, Page
@@ -195,9 +197,15 @@ class ClaudeVisionReader(BaseReader):
         # Parse each page with Claude Vision
         client = anthropic.Anthropic(api_key=self.api_key)
         page_contents: dict[int, str] = {}
+        failed_pages: list[int] = []
 
-        for i, (actual_page_num, img_b64) in enumerate(pages_data, 1):
-            print(f"  [Claude Vision] page {i}/{len(pages_data)} (PDF page {actual_page_num})...", flush=True)
+        @retry(
+            stop=stop_after_attempt(5),
+            wait=wait_exponential(multiplier=1, min=2, max=8),
+            retry=retry_if_exception_type(Exception),
+            reraise=True,
+        )
+        def _parse_page(img_b64: str) -> str:
             resp = client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
@@ -216,7 +224,16 @@ class ClaudeVisionReader(BaseReader):
                     ],
                 }],
             )
-            page_contents[actual_page_num] = _clean_content(resp.content[0].text)
+            return _clean_content(resp.content[0].text)
+
+        for i, (actual_page_num, img_b64) in enumerate(pages_data, 1):
+            print(f"  [Claude Vision] page {i}/{len(pages_data)} (PDF page {actual_page_num})...", flush=True)
+            try:
+                page_contents[actual_page_num] = _parse_page(img_b64)
+            except Exception as e:
+                print(f"  [Claude Vision] page {actual_page_num} FAILED: {e}", flush=True)
+                page_contents[actual_page_num] = ""
+                failed_pages.append(actual_page_num)
 
         # Build Page objects and merged content
         pages: list[Page] = []
@@ -255,6 +272,7 @@ class ClaudeVisionReader(BaseReader):
                 "model": self.model,
                 "dpi": self.dpi,
                 "page_range": [start_page, end_page] if page_range else None,
+                "failed_pages": failed_pages if failed_pages else None,
             },
         )
 
