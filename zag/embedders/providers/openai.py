@@ -24,7 +24,7 @@ from . import register_provider
 from .base import BaseProvider
 
 try:
-    from openai import OpenAI, APIError, RateLimitError, APIConnectionError
+    from openai import OpenAI, AsyncOpenAI, APIError, RateLimitError, APIConnectionError
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
@@ -129,6 +129,9 @@ class OpenAIProvider(BaseProvider):
             client_kwargs["organization"] = config.organization
         
         self._client = OpenAI(**client_kwargs)
+        # Lazy-init async client (created on first aembed_text call)
+        self._async_client: Optional['AsyncOpenAI'] = None
+        self._async_client_kwargs = client_kwargs
     
     def _count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken or estimation"""
@@ -239,6 +242,32 @@ class OpenAIProvider(BaseProvider):
             return response.data[0].embedding
         except (APIError, RateLimitError, APIConnectionError) as e:
             raise RuntimeError(f"OpenAI API error: {e}")
+    
+    async def aembed_text(self, text: str) -> list[float]:
+        """
+        Async version of embed_text using AsyncOpenAI client.
+
+        Uses a lazily-initialized shared AsyncOpenAI client so the underlying
+        httpx connection pool is reused across calls — no thread blocked.
+
+        Args:
+            text: Input text to embed
+
+        Returns:
+            Vector representation of the text
+        """
+        if self._async_client is None:
+            self._async_client = AsyncOpenAI(**self._async_client_kwargs)
+
+        request_params = {"model": self.config.model, "input": text}
+        if self.config.dimensions is not None:
+            request_params["dimensions"] = self.config.dimensions
+
+        try:
+            response = await self._async_client.embeddings.create(**request_params)
+            return response.data[0].embedding
+        except (APIError, RateLimitError, APIConnectionError) as e:
+            raise RuntimeError(f"OpenAI async API error: {e}")
     
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """

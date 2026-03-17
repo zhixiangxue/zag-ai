@@ -210,6 +210,42 @@ class Reranker(BaseReranker):
             return reranked_units[:top_k]
         return reranked_units
     
+    async def arerank(
+        self,
+        query: str,
+        units: list[BaseUnit],
+        top_k: Optional[int] = None
+    ) -> list[BaseUnit]:
+        """Async version of rerank.
+
+        Uses provider.arerank() if available (e.g. CohereProvider with AsyncClient).
+        Falls back to asyncio.to_thread(self.rerank) for providers without async support.
+        """
+        import asyncio
+
+        if not units:
+            return []
+
+        if hasattr(self._provider, 'arerank'):
+            documents = [self._build_document(unit) for unit in units]
+            results = await self._provider.arerank(query, documents, top_k=top_k)
+            doc_to_score = {doc: score for doc, score in results}
+            reranked_units = []
+            for unit in units:
+                doc_text = self._build_document(unit)
+                if doc_text in doc_to_score:
+                    unit_copy = unit.model_copy()
+                    unit_copy.score = doc_to_score[doc_text]
+                    reranked_units.append(unit_copy)
+            reranked_units.sort(key=lambda x: x.score, reverse=True)
+            if top_k is not None:
+                return reranked_units[:top_k]
+            return reranked_units
+        else:
+            # Fallback: run sync rerank in thread pool
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self.rerank, query, units, top_k)
+
     @property
     def provider(self) -> str:
         """Get the provider name"""

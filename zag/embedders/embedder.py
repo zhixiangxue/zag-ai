@@ -2,7 +2,10 @@
 Unified embedder entry point
 """
 
+import asyncio
 from typing import Any
+
+from cachetools import LRUCache
 
 from .uri import parse_embedder_uri
 from .providers import create_provider, get_available_providers
@@ -104,6 +107,16 @@ class Embedder:
         self._provider = create_provider(provider, config)
         self._provider_name = provider
         self._model = model
+        # LRU cache for embedding vectors.
+        # Key: raw text string. Value: embedding vector (list[float]).
+        # Deterministic embeddings make caching safe; maxsize=1024 limits memory
+        # to ~12 MB for 3072-dim float32 vectors.
+        # cachetools.LRUCache is not thread-safe, but GIL-protected dict operations
+        # are atomic enough for our concurrent-async use case (idempotent on miss).
+        self._vector_cache: LRUCache = LRUCache(maxsize=1024)
+        # Limits concurrent async embed calls to prevent burst 429 from OpenAI.
+        # Lazy-init in aembed() so it is always created inside the event loop.
+        self._embed_semaphore: asyncio.Semaphore | None = None
     
     def embed(self, text: str) -> list[float]:
         """
@@ -120,12 +133,17 @@ class Embedder:
             >>> vec = embedder.embed("hello world")
             >>> print(len(vec))  # e.g., 1536
         """
-        return self._provider.embed_text(text)
+        cached = self._vector_cache.get(text)
+        if cached is not None:
+            return cached
+        vector = self._provider.embed_text(text)
+        self._vector_cache[text] = vector
+        return vector
     
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Embed multiple texts in batch
-        
+
         Batch embedding is typically more efficient than calling embed()
         multiple times, as it reduces API calls and network overhead.
         
@@ -142,6 +160,39 @@ class Embedder:
             >>> print(len(vectors))  # 3
         """
         return self._provider.embed_batch(texts)
+    
+    async def aembed(self, text: str) -> list[float]:
+        """
+        Async version of embed.
+
+        Uses provider's native async method if available (e.g. OpenAI AsyncOpenAI),
+        otherwise falls back to running the sync embed in a thread pool executor.
+        This ensures zero threads are blocked for providers that support true async.
+
+        Args:
+            text: Input text to embed
+
+        Returns:
+            Vector representation as a list of floats
+        """
+        cached = self._vector_cache.get(text)
+        if cached is not None:
+            return cached
+        if self._embed_semaphore is None:
+            # Limit concurrent async embedding calls to stay under OpenAI rate limit.
+            # Formula: RPM_limit / (60 / avg_latency_s) / num_workers
+            # Example (10000 RPM, ~1.2s/call, 4 workers): 10000/50/4 = 50
+            # Adjust if RPM tier or worker count changes.
+            self._embed_semaphore = asyncio.Semaphore(50)
+        async with self._embed_semaphore:
+            if hasattr(self._provider, 'aembed_text'):
+                vector = await self._provider.aembed_text(text)
+            else:
+                # Fallback: run sync embed in thread pool (non-async providers)
+                loop = asyncio.get_running_loop()
+                vector = await loop.run_in_executor(None, self.embed, text)
+        self._vector_cache[text] = vector
+        return vector
     
     @property
     def dimension(self) -> int:

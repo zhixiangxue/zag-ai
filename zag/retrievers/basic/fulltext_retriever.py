@@ -6,7 +6,9 @@ from typing import Any, Optional, Dict
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+import httpx
 import meilisearch
+import tenacity
 from meilisearch.errors import MeilisearchApiError
 
 from ..base import BaseRetriever
@@ -89,7 +91,9 @@ class FullTextRetriever(BaseRetriever):
         self.primary_key = primary_key
         self.default_top_k = top_k
         self._executor = executor or ThreadPoolExecutor(max_workers=4)
-        
+        self._api_key = api_key or None  # stored for async HTTP headers
+        self._async_http: Optional[Any] = None  # lazy-init httpx.AsyncClient
+
         # Initialize Meilisearch client
         self.client = meilisearch.Client(url, api_key)
         
@@ -184,6 +188,42 @@ class FullTextRetriever(BaseRetriever):
 
         return unit
     
+    def _build_search_params(
+        self,
+        query: str,
+        k: int,
+        filters: Optional[dict[str, Any]],
+        sort: Optional[list[str]],
+        **kwargs
+    ) -> dict:
+        """
+        Build Meilisearch search params dict shared by retrieve() and aretrieve().
+
+        Applies the LOD exclusion filter and converts MongoDB-style filters to
+        Meilisearch filter strings.
+        """
+        search_params: dict = {
+            "limit": k,
+            "showRankingScore": True,
+        }
+
+        lod_exclude = 'metadata.custom.mode != "lod"'
+
+        if filters:
+            converter = MeilisearchFilterConverter()
+            filter_expr = converter.convert(filters)
+            search_params["filter"] = (
+                f"{lod_exclude} AND {filter_expr}" if filter_expr else lod_exclude
+            )
+        else:
+            search_params["filter"] = lod_exclude
+
+        if sort:
+            search_params["sort"] = sort
+
+        search_params.update(kwargs)
+        return search_params
+
     def retrieve(
         self,
         query: str,
@@ -227,41 +267,23 @@ class FullTextRetriever(BaseRetriever):
             ... )
         """
         k = top_k if top_k is not None else self.default_top_k
-        
-        # Build search parameters
-        search_params = {
-            "limit": k,
-            "showRankingScore": True,  # Always get ranking scores
-        }
-        
-        # Convert MongoDB-style filters to Meilisearch filter string
-        if filters:
-            converter = MeilisearchFilterConverter()
-            filter_expr = converter.convert(filters)
-            if filter_expr:
-                search_params["filter"] = filter_expr
-        
-        # Add sort if provided
-        if sort:
-            search_params["sort"] = sort
-        
-        # Add any additional kwargs
-        search_params.update(kwargs)
-        
-        # Execute search
+        search_params = self._build_search_params(query, k, filters, sort, **kwargs)
+
+        # Execute search (sync SDK)
         results = self.index.search(query, search_params)
-        
-        # Convert hits to Units
+
+        # Convert hits to Units, filter out LOD units (full-document summaries)
         hits = results.get("hits", [])
         units = []
         for hit in hits:
             score = hit.get("_rankingScore")
             unit = self._document_to_unit(hit, score)
-            unit.source = RetrievalSource.FULLTEXT  # Set retrieval source
-            units.append(unit)
-        
+            unit.source = RetrievalSource.FULLTEXT
+            if not unit.is_lod:
+                units.append(unit)
+
         return units
-    
+
     async def aretrieve(
         self,
         query: str,
@@ -271,23 +293,72 @@ class FullTextRetriever(BaseRetriever):
         **kwargs
     ) -> list[BaseUnit]:
         """
-        Async version of full-text search
-        
+        True async full-text search via httpx.AsyncClient.
+
+        Calls the Meilisearch REST API directly with httpx so no thread-pool
+        thread is blocked during network I/O.  The meilisearch Python SDK has
+        no async variant; httpx is the correct replacement and is already a
+        transitive dependency of FastAPI / httpcore.
+
+        A single shared AsyncClient is lazily created on the first call and
+        reused for all subsequent calls (connection pool reuse).
+
         Args:
             query: Search query string
             top_k: Number of results to return
-            filters: Metadata filters
-            sort: Sort criteria
-            **kwargs: Additional search parameters
-        
+            filters: Metadata filters (MongoDB-style dict)
+            sort: Sort criteria list
+            **kwargs: Additional Meilisearch search parameters
+
         Returns:
             List of retrieved units
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            lambda: self.retrieve(query, top_k, filters, sort, **kwargs)
+        import httpx
+
+        k = top_k if top_k is not None else self.default_top_k
+        search_params = self._build_search_params(query, k, filters, sort, **kwargs)
+        # httpx sends the query inside the JSON body (Meilisearch REST format)
+        search_params["q"] = query
+
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        url = f"{self.url}/indexes/{self.index_name}/search"
+
+        # Lazy-init shared async HTTP client
+        if self._async_http is None:
+            self._async_http = httpx.AsyncClient(timeout=30.0)
+
+        @tenacity.retry(
+            retry=tenacity.retry_if_exception(
+                lambda exc: (
+                    isinstance(exc, (httpx.TransportError, httpx.ConnectError))
+                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500)
+                )
+            ),
+            wait=tenacity.wait_exponential(multiplier=0.3, min=0.3, max=2),
+            stop=tenacity.stop_after_attempt(3),
+            reraise=True,
         )
+        async def _post() -> httpx.Response:
+            r = await self._async_http.post(url, json=search_params, headers=headers)
+            r.raise_for_status()
+            return r
+
+        resp = await _post()
+        results = resp.json()
+
+        hits = results.get("hits", [])
+        units = []
+        for hit in hits:
+            score = hit.get("_rankingScore")
+            unit = self._document_to_unit(hit, score)
+            unit.source = RetrievalSource.FULLTEXT
+            if not unit.is_lod:
+                units.append(unit)
+
+        return units
     
     def __repr__(self) -> str:
         """String representation"""

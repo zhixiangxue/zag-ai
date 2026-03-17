@@ -328,7 +328,7 @@ class QdrantVectorStore(BaseVectorStore):
                 timeout=timeout
             )
         
-        return cls(
+        instance = cls(
             client=client,
             collection_name=collection_name,
             embedder=embedder,
@@ -336,6 +336,19 @@ class QdrantVectorStore(BaseVectorStore):
             image_embedder=image_embedder,
             **kwargs
         )
+
+        # Async client uses HTTP (prefer_grpc=False): httpx.AsyncClient is safe to
+        # construct here even though server() runs inside asyncio.to_thread(),
+        # because httpx does not touch the event loop during __init__.
+        # (grpc.aio would fail here — its channels require event-loop context.)
+        from qdrant_client import AsyncQdrantClient as _AsyncQdrantClient
+        instance._async_qdrant = _AsyncQdrantClient(
+            host=host, port=port,
+            prefer_grpc=False,
+            timeout=timeout,
+        )
+
+        return instance
     
     @classmethod
     def cloud(
@@ -685,20 +698,67 @@ class QdrantVectorStore(BaseVectorStore):
         filter: Optional[Union[dict[str, Any], Any]] = None
     ) -> list[BaseUnit]:
         """
-        Async version of search (uses executor wrapper)
-        
+        True async search using AsyncQdrantClient.
+
+        Both the embedding call and the Qdrant gRPC call run as native coroutines,
+        consuming zero thread-pool threads during I/O wait.  Falls back to the
+        executor-based path for store instances that have no async client attached
+        (e.g. in-memory or local modes).
+
         Args:
-            query: Query content
+            query: Query content (text string or BaseUnit)
             top_k: Number of results to return
             filter: Optional metadata filters
                    - dict: MongoDB-style filter (auto-converted)
                    - Filter: Qdrant native Filter object (direct use)
-            
+
         Returns:
-            List of matching units
+            List of matching units with scores
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.search, query, top_k, filter)
+        async_client = getattr(self, '_async_qdrant', None)
+        if async_client is None:
+            # Fallback: in-memory / local modes created without server() have no async client
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.search, query, top_k, filter)
+
+        # Get query embedding via async path (zero threads for OpenAI provider)
+        if isinstance(query, str):
+            embedder = self.text_embedder
+            query_vector = await embedder.aembed(query)
+        elif isinstance(query, BaseUnit):
+            embedder = self._get_embedder_for_unit(query)
+            if isinstance(query, TextUnit):
+                query_vector = await embedder.aembed(query.content)
+            else:
+                query_vector = await embedder.aembed(str(query.content))
+        else:
+            raise ValueError(f"Unsupported query type: {type(query)}")
+
+        # Convert filter to Qdrant format
+        qdrant_filter = None
+        if filter:
+            if isinstance(filter, dict):
+                from ...utils.filter_converter import QdrantFilterConverter
+                converter = QdrantFilterConverter()
+                qdrant_filter = converter.convert(filter)
+            else:
+                qdrant_filter = filter
+
+        # True async gRPC search — no thread blocked
+        response = await async_client.query_points(
+            collection_name=self.collection_name,
+            query=query_vector,
+            limit=top_k,
+            query_filter=qdrant_filter,
+        )
+
+        units = []
+        for scored_point in response.points:
+            unit = self._point_to_unit(scored_point)
+            unit.score = scored_point.score
+            units.append(unit)
+
+        return units
     
     def delete(self, unit_ids: list[str]) -> None:
         """

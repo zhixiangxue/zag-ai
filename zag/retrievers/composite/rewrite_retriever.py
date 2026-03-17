@@ -3,6 +3,7 @@ Query rewrite retriever - decorator that applies a query transformation before r
 """
 
 from typing import Any, Callable, Optional
+import asyncio
 
 from ..base import BaseRetriever
 from ...schemas import BaseUnit
@@ -72,8 +73,9 @@ class QueryRewriteRetriever(BaseRetriever):
         top_k: Optional[int] = None,
         filters: Optional[dict[str, Any]] = None,
     ) -> list[BaseUnit]:
-        """Async version: apply rewrite then delegate to inner retriever."""
-        rewritten = self.rewrite_fn(query)
+        """Async version: supports both sync and async rewrite_fn."""
+        result = self.rewrite_fn(query)
+        rewritten = await result if asyncio.iscoroutine(result) else result
         return await self.retriever.aretrieve(rewritten, top_k=top_k, filters=filters)
 
     def __repr__(self) -> str:
