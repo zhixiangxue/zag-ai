@@ -988,7 +988,7 @@ class QdrantVectorStore(BaseVectorStore):
         info = self.client.get_collection(collection_name=self.collection_name)
         return info.points_count
 
-    def fetch(self, filters: Optional[Dict[str, Any]] = None) -> list[BaseUnit]:
+    def fetch(self, filters: Optional[Dict[str, Any]] = None, limit: Optional[int] = None) -> list[BaseUnit]:
         """
         Fetch all units matching the filters (no vector search)
         
@@ -1000,6 +1000,8 @@ class QdrantVectorStore(BaseVectorStore):
                     {"doc_id": "xxx"}
                     {"doc_id": "xxx", "metadata.custom.mode": "lod"}
                     If None, returns all units (use with caution on large collections)
+            limit:  Optional maximum number of units to return; stops scanning
+                    as soon as this many results are collected.
         
         Returns:
             List of matching units (unsorted)
@@ -1030,6 +1032,8 @@ class QdrantVectorStore(BaseVectorStore):
             for point in results:
                 unit = self._point_to_unit(point)
                 all_units.append(unit)
+                if limit is not None and len(all_units) >= limit:
+                    return all_units
             
             # Check if there are more results
             if not next_offset:
@@ -1038,18 +1042,19 @@ class QdrantVectorStore(BaseVectorStore):
         
         return all_units
 
-    async def afetch(self, filters: Optional[Dict[str, Any]] = None) -> list[BaseUnit]:
+    async def afetch(self, filters: Optional[Dict[str, Any]] = None, limit: Optional[int] = None) -> list[BaseUnit]:
         """
         Async version of fetch (uses executor wrapper)
         
         Args:
             filters: Optional metadata filters using dot notation
+            limit:   Optional maximum number of units to return
             
         Returns:
             List of matching units (unsorted)
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.fetch, filters)
+        return await loop.run_in_executor(None, self.fetch, filters, limit)
     
     @property
     def dimension(self) -> int:
