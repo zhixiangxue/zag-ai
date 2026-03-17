@@ -27,12 +27,14 @@ def test_markdown_header_splitter():
     
     print(f"✓ File loaded: {len(markdown_content)} chars")
     
-    # Create markdown document
-    from zag.schemas.markdown import Markdown
+    # Create plain text document
+    from zag.schemas.plain import PlainText
     from zag.schemas import DocumentMetadata
-    
-    doc = Markdown(
+    from zag.utils.hash import calculate_string_hash
+
+    doc = PlainText.from_text(
         content=markdown_content,
+        doc_id=calculate_string_hash(markdown_content),
         metadata=DocumentMetadata(
             source="test.md",
             source_type="local",

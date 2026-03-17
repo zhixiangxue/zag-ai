@@ -14,8 +14,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from zag.splitters import MarkdownHeaderSplitter, TextSplitter, RecursiveMergingSplitter
-from zag.schemas.markdown import Markdown
+from zag.schemas.plain import PlainText
 from zag.schemas import DocumentMetadata
+from zag.utils.hash import calculate_string_hash
 
 
 def create_test_doc():
@@ -43,7 +44,11 @@ Short ending section.
         content_length=len(content)
     )
     
-    return Markdown(content=content, metadata=metadata)
+    return PlainText.from_text(
+        content=content,
+        doc_id=calculate_string_hash(content),
+        metadata=metadata,
+    )
 
 
 def analyze_result(name: str, units):

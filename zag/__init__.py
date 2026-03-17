@@ -50,7 +50,7 @@ from .schemas import (
     ImageUnit,
 )
 from .schemas.pdf import PDF
-from .schemas.markdown import Markdown
+from .schemas.plain import PlainText
 
 # Readers
 from .readers.base import BaseReader
@@ -96,7 +96,7 @@ __all__ = [
     "PageableDocument",
     "UnitCollection",
     "PDF",
-    "Markdown",
+    "PlainText",
     # Readers
     "BaseReader",
     # Splitters

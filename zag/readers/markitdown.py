@@ -9,8 +9,7 @@ from markitdown import MarkItDown
 
 from .base import BaseReader
 from ..schemas import BaseDocument, DocumentMetadata
-from ..schemas.pdf import PDF
-from ..schemas.markdown import Markdown
+from ..schemas.plain import PlainText
 from ..utils.source import SourceUtils, FileType, SourceInfo
 from ..utils.hash import calculate_file_hash, calculate_string_hash
 
@@ -20,14 +19,15 @@ class MarkItDownReader(BaseReader):
     Reader using Microsoft's MarkItDown library
     Supports: PDF, DOCX, PPTX, XLSX, HTML, XML, CSV, JSON, ZIP, TXT, MD, etc.
     
-    Automatically returns appropriate document type:
-    - PDF files → PDF document
-    - Other formats → Markdown document
+    Automatically returns PlainText for every format, because MarkItDown
+    discards page boundaries regardless of input type.
+    Use MinerU (ClassicProcessor) for paginated PDF structure, or
+    DoclingReader for paginated DOCX structure.
     
     Usage:
         reader = MarkItDownReader()
-        doc = reader.read("path/to/file.pdf")  # Returns PDF
-        doc = reader.read("file.md")  # Returns Markdown
+        doc = reader.read("path/to/file.pdf")   # Returns PlainText
+        doc = reader.read("file.md")             # Returns PlainText
         units = doc.split(splitter)
     """
     
@@ -60,7 +60,7 @@ class MarkItDownReader(BaseReader):
             source: File path (str or Path object, relative/absolute) or URL
             
         Returns:
-            PDF or Markdown document based on file type
+            PlainText document (single synthetic page)
             
         Raises:
             ValueError: If source is invalid or file format is not supported
@@ -87,30 +87,20 @@ class MarkItDownReader(BaseReader):
     
     def _create_document(self, info: SourceInfo, content: str) -> BaseDocument:
         """
-        Create appropriate document based on file type
-        
-        Args:
-            info: SourceInfo from validation
-            content: Converted content
-            
-        Returns:
-            PDF or Markdown document
+        Create a PlainText document for any input format.
+
+        MarkItDown always returns a single flat string regardless of the source
+        format — it discards page boundaries for PDF, DOCX, PPTX, etc.
+        Returning PlainText (single synthetic page) honestly reflects what we
+        actually have.  Use MinerU (via ClassicProcessor) for paginated PDF, or
+        DoclingReader for paginated DOCX.
         """
         metadata = self._build_metadata(info, content)
-        
-        if info.file_type == FileType.PDF:
-            return PDF(
-                doc_id=metadata.md5,  # Use file hash as document ID
-                content=content,
-                metadata=metadata
-            )
-        else:
-            # All other types converted to Markdown
-            return Markdown(
-                doc_id=metadata.md5,  # Use file hash as document ID
-                content=content,
-                metadata=metadata
-            )
+        return PlainText.from_text(
+            content=content,
+            doc_id=metadata.md5,
+            metadata=metadata,
+        )
     
     def _build_metadata(self, info: SourceInfo, content: str) -> DocumentMetadata:
         """

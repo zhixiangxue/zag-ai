@@ -6,6 +6,9 @@ Schemas module - Core data structures
 from .types import UnitType, RelationType, RetrievalSource, ProcessingMode
 from .metadata import DocumentMetadata, UnitMetadata
 from .document import BaseDocument, Page, PageableDocument
+from .pdf import PDF
+from .word import Word
+from .plain import PlainText
 from .unit import BaseUnit, UnitRegistry, UnitCollection, TextUnit, TableUnit, ImageUnit, LODLevel, ContentView
 from .tree import TreeNode, DocTree, TreeRetrievalResult
 
@@ -22,6 +25,9 @@ __all__ = [
     "BaseDocument",
     "Page",
     "PageableDocument",
+    "PDF",
+    "Word",
+    "PlainText",
     # Unit classes
     "BaseUnit",
     "UnitRegistry",

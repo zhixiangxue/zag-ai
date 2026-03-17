@@ -21,8 +21,9 @@ import sys
 from pathlib import Path
 
 from zag.splitters import MarkdownHeaderSplitter, TextSplitter, RecursiveMergingSplitter
-from zag.schemas.markdown import Markdown
+from zag.schemas.plain import PlainText
 from zag.schemas import DocumentMetadata
+from zag.utils.hash import calculate_string_hash
 
 
 def print_separator(title: str):
@@ -74,7 +75,11 @@ def main():
         content_length=len(content),
     )
     
-    doc = Markdown(content=content, metadata=metadata)
+    doc = PlainText.from_text(
+        content=content,
+        doc_id=calculate_string_hash(content),
+        metadata=metadata,
+    )
     print(f"📄 Document: {sample_file.name}")
     print(f"📄 Length: {len(content)} characters\n")
     

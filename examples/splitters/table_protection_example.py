@@ -21,8 +21,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from zag.splitters import MarkdownHeaderSplitter, TextSplitter, RecursiveMergingSplitter
-from zag.schemas.markdown import Markdown
+from zag.schemas.plain import PlainText
 from zag.schemas import DocumentMetadata
+from zag.utils.hash import calculate_string_hash
 
 
 def print_separator(title: str, width: int = 70):
@@ -66,8 +67,9 @@ Our current mortgage rates:
 Contact us for personalized quotes.
 """
     
-    doc = Markdown(
+    doc = PlainText.from_text(
         content=content,
+        doc_id=calculate_string_hash(content),
         metadata=DocumentMetadata(
             source="demo1",
             source_type="inline",
@@ -115,8 +117,9 @@ def demo2_large_table():
 End of catalog.
 """
     
-    doc = Markdown(
+    doc = PlainText.from_text(
         content=content,
+        doc_id=calculate_string_hash(content),
         metadata=DocumentMetadata(
             source="demo2",
             source_type="inline",
@@ -173,8 +176,9 @@ Our quarterly results:
 Strong growth across all segments. Market conditions remain favorable.
 """
     
-    doc = Markdown(
+    doc = PlainText.from_text(
         content=content,
+        doc_id=calculate_string_hash(content),
         metadata=DocumentMetadata(
             source="demo3",
             source_type="inline",
@@ -227,8 +231,9 @@ Here is the complete dataset:
 Data shows strong trends across all categories.
 """
     
-    doc = Markdown(
+    doc = PlainText.from_text(
         content=content,
+        doc_id=calculate_string_hash(content),
         metadata=DocumentMetadata(
             source="demo4",
             source_type="inline",

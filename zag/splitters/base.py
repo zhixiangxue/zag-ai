@@ -194,14 +194,13 @@ class CompositeSplitter(BaseSplitter):
         Returns:
             Document with unit's content
         """
-        # Create a minimal document-like object with unit's content
-        # This allows subsequent splitters to process it
-        from ..schemas.markdown import Markdown
-        
-        return Markdown(
+        # Wrap unit content in a PlainText for subsequent splitters to process
+        from ..schemas.plain import PlainText
+
+        return PlainText.from_text(
             content=unit.content,
+            doc_id=unit.unit_id,  # Use unit ID as doc ID for traceability
             metadata=original_doc.metadata,
-            doc_id=unit.unit_id  # Use unit ID as doc ID for traceability
         )
     
     def __repr__(self) -> str:

@@ -13,6 +13,7 @@ from docling.pipeline.vlm_pipeline import VlmPipeline
 from .base import BaseReader
 from ..schemas import BaseDocument, DocumentMetadata, Page
 from ..schemas.pdf import PDF
+from ..schemas.word import Word
 from ..utils.source import SourceUtils, FileType, SourceInfo
 from ..utils.hash import calculate_file_hash
 
@@ -274,16 +275,15 @@ class DoclingReader(BaseReader):
         # Build metadata
         metadata = self._build_metadata(info, markdown_content, docling_doc)
         
-        # Create PDF document with doc_id based on file hash
+        # Select concrete type based on file format
         # This ensures idempotency: same file -> same doc_id
-        pdf_doc = PDF(
+        doc_class = Word if info.file_type == FileType.WORD else PDF
+        return doc_class(
             doc_id=metadata.md5,  # Use file hash as doc_id
             content=markdown_content,
             metadata=metadata,
             pages=pages
         )
-        
-        return pdf_doc
     
     def _extract_pages(self, docling_doc: Any) -> list[Page]:
         """

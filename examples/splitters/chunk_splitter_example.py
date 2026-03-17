@@ -22,7 +22,7 @@ Use cases:
 """
 
 from zag.splitters import ChunkSplitter
-from zag.schemas.markdown import Markdown
+from zag.schemas.plain import PlainText
 from zag.schemas import UnitMetadata, DocumentMetadata
 
 
@@ -53,10 +53,10 @@ Looking ahead, the integration of AI in healthcare will likely accelerate. As mo
 
 def create_sample_doc():
     """Helper function to create a sample document"""
-    import uuid
-    return Markdown(
-        doc_id=str(uuid.uuid4()),
+    from zag.utils.hash import calculate_string_hash
+    return PlainText.from_text(
         content=SAMPLE_CONTENT,
+        doc_id=calculate_string_hash(SAMPLE_CONTENT),
         metadata=DocumentMetadata(
             source="evaluation_test.md",
             source_type="local",
