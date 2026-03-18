@@ -988,6 +988,47 @@ class QdrantVectorStore(BaseVectorStore):
         info = self.client.get_collection(collection_name=self.collection_name)
         return info.points_count
 
+    async def acount(self, filters: Optional[Dict[str, Any]] = None) -> int:
+        """
+        Count units matching the given filters without fetching payload data.
+
+        Uses Qdrant's native count API which is far cheaper than scroll + len().
+
+        Args:
+            filters: Optional metadata filters using dot notation, e.g. {"doc_id": "xxx"}
+                     If None, returns total count of all units in the collection.
+
+        Returns:
+            Number of matching units.
+        """
+        qdrant_filter = None
+        if filters:
+            from ...utils.filter_converter import QdrantFilterConverter
+            converter = QdrantFilterConverter()
+            qdrant_filter = converter.convert(filters)
+
+        async_client = getattr(self, '_async_qdrant', None)
+        if async_client is not None:
+            result = await async_client.count(
+                collection_name=self.collection_name,
+                count_filter=qdrant_filter,
+                exact=True,
+            )
+            return result.count
+
+        # Fallback: sync count via executor
+        import asyncio
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: self.client.count(
+                collection_name=self.collection_name,
+                count_filter=qdrant_filter,
+                exact=True,
+            )
+        )
+        return result.count
+
     def fetch(self, filters: Optional[Dict[str, Any]] = None, limit: Optional[int] = None) -> list[BaseUnit]:
         """
         Fetch all units matching the filters (no vector search)

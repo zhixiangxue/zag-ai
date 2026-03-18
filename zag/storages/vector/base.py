@@ -406,6 +406,25 @@ class BaseVectorStore(ABC):
             f"{self.__class__.__name__} does not support afetch. "
             f"This feature requires vector store to support filter-based retrieval."
         )
+
+    async def acount(self, filters: Optional[Dict[str, Any]] = None) -> int:
+        """
+        Count units matching the given filters without fetching payload data.
+
+        Args:
+            filters: Optional metadata filters using dot notation, e.g. {"doc_id": "xxx"}
+                     If None, returns total count of all units.
+
+        Returns:
+            Number of matching units.
+
+        Raises:
+            NotImplementedError: If the vector store doesn't support filter-based count.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support acount. "
+            f"This feature requires vector store to support filter-based count."
+        )
     
     @abstractmethod
     async def aupdate(self, units: Union['BaseUnit', list['BaseUnit']]) -> None:
