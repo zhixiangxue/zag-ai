@@ -187,12 +187,15 @@ class QdrantFilterConverter(FilterConverter):
                 
             elif op == "$in":
                 # {"city": {"$in": ["SF", "NY", "LA"]}}
-                return FieldCondition(key=key, match=MatchAny(any=op_value))
+                # Defensively wrap bare scalar into a list (caller mistake tolerance)
+                values = op_value if isinstance(op_value, list) else [op_value]
+                return FieldCondition(key=key, match=MatchAny(any=values))
                 
             elif op == "$nin":
                 # {"city": {"$nin": ["deleted", "banned"]}}
                 # This needs to be wrapped in must_not at higher level
-                return FieldCondition(key=key, match=MatchAny(any=op_value))
+                values = op_value if isinstance(op_value, list) else [op_value]
+                return FieldCondition(key=key, match=MatchAny(any=values))
                 
             elif op in ["$gt", "$gte", "$lt", "$lte"]:
                 # Range conditions: {"age": {"$gte": 18, "$lt": 65}}
