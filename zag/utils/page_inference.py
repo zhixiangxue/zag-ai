@@ -104,56 +104,58 @@ def fuzzy_find_start(
     # Strategy 2: Sliding window with original text
     best_pos = None
     best_score = threshold
-    step = 100
-    
+    # Adaptive step: larger documents get larger steps to reduce iterations
+    sig_len = len(signature)
+    step = max(200, sig_len // 2)  # At least 200 chars, or half of signature length
+
     for pos in range(start_from, search_end, step):
-        window_end = min(pos + len(signature) * 2, haystack_len)
+        window_end = min(pos + sig_len * 2, haystack_len)
         window = haystack[pos:window_end]
-        
+
         # Check if quick_sig exists in window
         idx = window.find(quick_sig)
         if idx != -1:
-            candidate = window[idx:idx + len(signature)]
+            candidate = window[idx:idx + sig_len]
             score = SequenceMatcher(None, signature, candidate).ratio()
             if score > best_score:
                 best_score = score
                 best_pos = pos + idx
                 if score > 0.95:
                     return best_pos
-    
+
     if best_pos is not None:
         return best_pos
-    
+
     # Strategy 3: Normalized matching (handles HTML/markdown differences)
     norm_signature = normalize_text(signature)
-    sig_len = len(norm_signature)
-    
-    if sig_len < 10:
+    norm_sig_len = len(norm_signature)
+
+    if norm_sig_len < 10:
         return None
-    
-    norm_quick_sig = norm_signature[:min(50, sig_len)]
+
+    norm_quick_sig = norm_signature[:min(50, norm_sig_len)]
     best_pos = None
     best_score = threshold
-    
+
     for pos in range(start_from, search_end, step):
-        window_end = min(pos + len(signature) * 3, haystack_len)
+        window_end = min(pos + sig_len * 3, haystack_len)
         window = haystack[pos:window_end]
         norm_window = normalize_text(window)
-        
+
         idx = norm_window.find(norm_quick_sig)
         if idx == -1:
             continue
-        
-        compare_end = min(idx + sig_len, len(norm_window))
+
+        compare_end = min(idx + norm_sig_len, len(norm_window))
         candidate = norm_window[idx:compare_end]
         score = SequenceMatcher(None, norm_signature, candidate).ratio()
-        
+
         if score > best_score:
             best_score = score
             best_pos = pos
             if score > 0.95:
                 break
-    
+
     return best_pos
 
 

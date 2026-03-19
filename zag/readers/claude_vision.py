@@ -16,7 +16,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from .base import BaseReader
 from ..schemas import DocumentMetadata
-from ..schemas.pdf import PDF, Page
+from ..schemas.pdf import PDF
+from ..schemas.document import Page
 from ..utils.hash import calculate_file_hash
 
 
