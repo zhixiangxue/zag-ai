@@ -32,6 +32,8 @@ from .filters import (
 # Augmentors
 from .augmentors import (
     ContextAugmentor,
+    TableContextExpander,
+    ExpandMode,
 )
 
 # Compressors
@@ -56,6 +58,8 @@ __all__ = [
     "Deduplicator",
     # Augmentors
     "ContextAugmentor",
+    "TableContextExpander",
+    "ExpandMode",
     # Compressors
     "TokenCompressor",
     # Selectors
