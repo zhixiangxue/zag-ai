@@ -162,13 +162,12 @@ class MinerUReader(BaseReader):
         """
         # Check if mineru is installed
         try:
-            from mineru.cli.common import convert_pdf_bytes_to_bytes_by_pypdfium2, prepare_env, read_fn
+            from mineru.cli.common import convert_pdf_bytes_to_bytes, prepare_env, read_fn
             from mineru.data.data_reader_writer import FileBasedDataWriter
             from mineru.utils.engine_utils import get_vlm_engine
             from mineru.utils.enum_class import MakeMode
-            from mineru.backend.pipeline.pipeline_analyze import doc_analyze as pipeline_doc_analyze
+            from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming as pipeline_doc_analyze_streaming
             from mineru.backend.pipeline.pipeline_middle_json_mkcontent import union_make as pipeline_union_make
-            from mineru.backend.pipeline.model_json_to_middle_json import result_to_middle_json as pipeline_result_to_middle_json
             from mineru.backend.vlm.vlm_analyze import doc_analyze as vlm_doc_analyze
             from mineru.backend.vlm.vlm_middle_json_mkcontent import union_make as vlm_union_make
             from mineru.backend.hybrid.hybrid_analyze import doc_analyze as hybrid_doc_analyze
@@ -242,35 +241,33 @@ class MinerUReader(BaseReader):
             
             # Handle page range
             if start_page_id > 0 or end_page_id is not None:
-                pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(
+                pdf_bytes = convert_pdf_bytes_to_bytes(
                     pdf_bytes, start_page_id, end_page_id
                 )
             
             # Parse based on backend
             if self.backend == "pipeline":
-                # Pipeline backend
+                # Pipeline backend (MinerU 3.x: doc_analyze_streaming with callback)
                 parse_method = self.parse_method
-                infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = pipeline_doc_analyze(
-                    [pdf_bytes], [self.lang], 
-                    parse_method=parse_method,
-                    formula_enable=self.formula_enable,
-                    table_enable=self.table_enable
-                )
                 
-                # Prepare environment
+                # Prepare environment before calling streaming API
                 local_image_dir, local_md_dir = prepare_env(temp_output_dir, pdf_file_name, parse_method)
                 image_writer = FileBasedDataWriter(local_image_dir)
                 md_writer = FileBasedDataWriter(local_md_dir)
                 
-                # Convert to middle JSON
-                model_list = infer_results[0]
-                images_list = all_image_lists[0]
-                pdf_doc = all_pdf_docs[0]
-                _lang = lang_list[0]
-                _ocr_enable = ocr_enabled_list[0]
-                middle_json = pipeline_result_to_middle_json(
-                    model_list, images_list, pdf_doc, image_writer, _lang, _ocr_enable, self.formula_enable
+                # Collect middle_json via callback
+                _pipeline_results = {}
+                def _on_pipeline_doc_ready(doc_index, model_list, result_middle_json, ocr_enable):
+                    _pipeline_results[doc_index] = result_middle_json
+                
+                pipeline_doc_analyze_streaming(
+                    [pdf_bytes], [image_writer], [self.lang],
+                    _on_pipeline_doc_ready,
+                    parse_method=parse_method,
+                    formula_enable=self.formula_enable,
+                    table_enable=self.table_enable
                 )
+                middle_json = _pipeline_results[0]
                 
             elif self.backend.startswith("vlm-"):
                 # VLM backend
