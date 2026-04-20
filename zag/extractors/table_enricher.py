@@ -652,11 +652,14 @@ Description:"""
             response = await conv.asend(prompt)
             return response.content.strip()
         except Exception:
-            # Fallback: simple description
-            columns = ", ".join(df.columns)
-            sample_row = df.iloc[0].to_dict() if len(df) > 0 else {}
-            sample_desc = ", ".join([f"{k}: {v}" for k, v in sample_row.items()])
-            return f"{caption}. Columns: {columns}. Sample: {sample_desc}"
+            # Fallback: simple description built from df metadata only (must not raise)
+            try:
+                columns = ", ".join(str(c) for c in df.columns)
+                sample_row = df.iloc[0].to_dict() if len(df) > 0 else {}
+                sample_desc = ", ".join([f"{k}: {v}" for k, v in sample_row.items()])
+                return f"{caption}. Columns: {columns}. Sample: {sample_desc}"
+            except Exception:
+                return caption or "Table data"
     
     def _dataframe_to_preview(self, df: 'pd.DataFrame', max_rows: int = 3) -> str:
         """Convert DataFrame to preview string for LLM"""

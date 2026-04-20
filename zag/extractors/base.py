@@ -86,11 +86,11 @@ class BaseExtractor(ABC):
                     return result
             
             tasks = [process_with_limit(unit) for unit in units]
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Write results to unit.metadata and unit fields
         for unit, result in zip(units, results):
-            if not result:
+            if not result or isinstance(result, BaseException):
                 continue
             
             # Special handling: keywords field goes to unit.metadata.keywords
