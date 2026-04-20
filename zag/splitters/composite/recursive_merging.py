@@ -130,16 +130,19 @@ class RecursiveMergingSplitter(BaseSplitter):
             return [unit]
     
     def _same_section(self, a: TextUnit, b: TextUnit) -> bool:
-        """Check whether two units belong to the same section.
+        """Check whether two units belong to the same top-level section.
 
-        Units are in the same section when their context_path values are equal.
-        Merging across different context_path boundaries would mix content from
-        separate document sections (e.g., appending the next section's H1 heading
-        to the tail of the previous section).
+        Only the first component of context_path (H1 level) is compared.
+        Units sharing the same H1 ancestor can be merged freely regardless of
+        sub-header depth; only H1 boundaries act as hard merge stops.
+        This avoids fragmenting documents with many small sub-sections while
+        still preventing content from unrelated top-level chapters from mixing.
         """
         ctx_a = a.metadata.context_path if a.metadata else None
         ctx_b = b.metadata.context_path if b.metadata else None
-        return ctx_a == ctx_b
+        top_a = ctx_a.split(" > ")[0] if ctx_a else None
+        top_b = ctx_b.split(" > ")[0] if ctx_b else None
+        return top_a == top_b
 
     def _merge_units(self, units: list[BaseUnit]) -> list[BaseUnit]:
         """
