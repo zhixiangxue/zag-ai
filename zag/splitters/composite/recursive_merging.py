@@ -185,12 +185,12 @@ class RecursiveMergingSplitter(BaseSplitter):
             # Try to merge with current group
             potential_tokens = current_tokens + unit_tokens
             
-            # A sticky unit (too small to stand alone) always merges forward
-            # into the next same-section unit, even beyond the target size.
-            is_sticky = current_tokens <= self.sticky_threshold
+            # Merge greedily until target_token_size is reached.
+            # Section boundaries are preserved in metadata.context_path and
+            # do NOT block merging — that is the job of upstream splitters.
             within_budget = potential_tokens <= self.target_token_size
 
-            if (within_budget or is_sticky) and self._same_section(current_merged, unit):
+            if within_budget:
                 # Can merge - use + operator!
                 current_merged = current_merged + unit
                 current_tokens = potential_tokens

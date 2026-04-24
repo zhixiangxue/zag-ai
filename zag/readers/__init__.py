@@ -11,6 +11,7 @@ __all__ = [
     "MarkItDownReader",
     "MinerUReader",
     "PDFPlumberReader",
+    "PyMuPDF4LLMReader",
     "TabulaReader",
     "MarkdownTreeReader",
 ]
@@ -50,6 +51,10 @@ def __getattr__(name: str):
         from .tabula import TabulaReader
 
         return TabulaReader
+    elif name == "PyMuPDF4LLMReader":
+        from .pymupdf4llm import PyMuPDF4LLMReader
+
+        return PyMuPDF4LLMReader
     elif name == "MarkdownTreeReader":
         from .markdown_tree import MarkdownTreeReader
 
