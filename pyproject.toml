@@ -44,6 +44,8 @@ reader = [
     "camelot-py[base]>=0.11.0",  # CamelotReader
     "tabula-py>=2.9.0",  # TabulaReader (requires Java)
     "PyMuPDF>=1.23.0",  # Used by pdfplumber and potential OCR readers
+    "pymupdf4llm>=0.0.17",  # PyMuPDF4LLMReader
+    "beautifulsoup4>=4.12.0",  # HTML table parsing for PyMuPDF4LLMReader
     "PyPDF2>=3.0.0",  # PDF metadata extraction
 ]
 

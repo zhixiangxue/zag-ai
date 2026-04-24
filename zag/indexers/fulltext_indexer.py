@@ -221,7 +221,7 @@ class FullTextIndexer(BaseIndexer):
         
         if settings:
             task = self.index.update_settings(settings)
-            self.client.wait_for_task(task.task_uid)
+            self.client.wait_for_task(task.task_uid, timeout_in_ms=60000)
     
     @with_spinner_progress("Adding {count} units to fulltext index")
     def add(self, units_list: list[BaseUnit]) -> None:
@@ -241,7 +241,7 @@ class FullTextIndexer(BaseIndexer):
         """
         documents = [self._unit_to_document(u) for u in units_list]
         task = self.index.add_documents(documents)
-        self.client.wait_for_task(task.task_uid)
+        self.client.wait_for_task(task.task_uid, timeout_in_ms=60000)
     
     @with_spinner_progress("Adding {count} units to fulltext index")
     async def aadd(self, units_list: list[BaseUnit]) -> None:
